@@ -1,0 +1,2 @@
+The following project has been used to process USBsnoop logs and generate C code based on them:
+https://felipesanches.googlecode.com/svn/trunk/usb-dev
