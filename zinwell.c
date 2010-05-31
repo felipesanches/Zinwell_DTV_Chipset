@@ -1,5 +1,6 @@
 /**
  * IBayo ISDB-T 1Seg DTV USB device driver
+ * zinwell.c - main operations
  *
  * Copyright (c) 2010, Lucas C. Villa Real <lucasvr@gobolinux.org>
  *
@@ -32,9 +33,11 @@
 #include <libusb.h>
 
 #include "zinwell.h"
+#include "max2163.h"
 
-#define ZINWELL_VENDOR_ID 0x5a57
-#define IB200_PRODUCT_ID  0x4210   /* ISDB-T DTV UB-10 */
+#define ZINWELL_VENDOR_ID      0x5a57
+#define IB200_PRODUCT_ID       0x4210   /* ISDB-T DTV UB-10 */
+
 
 #define debug_printf(msg...) do { \
 	fprintf(stderr, "%s:%d: ", __FUNCTION__, __LINE__); \
@@ -99,7 +102,7 @@ ib200_open_device(libusb_device **devlist, size_t n)
 	ssize_t i;
 	libusb_device_handle *devh;
 
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 
 	for (i=0; i<n; ++i) {
 		libusb_device *dev = devlist[i];
@@ -121,14 +124,140 @@ ib200_open_device(libusb_device **devlist, size_t n)
 		}
 	}
 
+	fprintf(stderr, "Failed to find USB device ID %04x:%04x\n", ZINWELL_VENDOR_ID, IB200_PRODUCT_ID);
 	return NULL;
 }
 
 void
 ib200_close_device(libusb_device_handle *devh)
 {
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 	libusb_close(devh);
+}
+
+static int
+ib200_i2c_write(libusb_device_handle *devh, uint16_t wValue, uint16_t wIndex, unsigned char reg, unsigned char val)
+{
+	int ret;
+	unsigned int timeout;
+	uint8_t bmRequestType, bRequest;
+	unsigned char addr = MAX2163_I2C_WRITE_ADDR;
+	unsigned char cmd[13] = { wValue, addr, addr, 0x01, 0x01, reg, val, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+	timeout = 1000;
+	bRequest = 1;
+	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+	usleep(10000);
+	return 0;
+}
+
+int
+ib200_max2163_init(libusb_device_handle *devh)
+{
+	int ret;
+
+	/* Initialize the IF Filter Register */
+	/* \x0b\xc0\xc0\x01\x01\x00\x6f\x00\x00\x00\x00\x00\x33 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_IF_FILTER_REG, 
+						  /* 0x6f */
+						 _IF_FILTER_13MHZ_BANDWIDTH | _IF_FILTER_BIAS_CURRENT | _IF_FILTER_CENTER_FREQUENCY_1_00);
+	if (ret < 0) {
+		debug_printf("Failed to configure the IF Filter Register");
+		return ret;
+	}
+
+	/* Initialize the VAS Register */
+	/* \x0b\xc0\xc0\x01\x01\x01\xb7\x00\x01\x00\x00\x00\x6e */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_VAS_REG, 
+						  /* 0xb7 */
+						 _VAS_REG_AUTOSELECT_45056_WAIT_TIME | _VAS_REG_CPS_AUTOMATIC | _VAS_REG_START_AT_CURR_USED_REGS);
+	if (ret < 0) {
+		debug_printf("Failed to configure the VAS Register");
+		return ret;
+	}
+
+	/* Initialize the VCO Register */
+	/* \x0b\xc0\xc0\x01\x01\x02\x29\x00\x02\x00\x00\x00\xaa" */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_VCO_REG, 
+						  /* 0x29 */
+						 _VCO_REG_VCOB_LOW_POWER | _VCO_REG_SUB_BAND_3 | _VCO_REG_VCO_1);
+	if (ret < 0) {
+		debug_printf("Failed to configure the VCO Register");
+		return ret;
+	}
+
+	/* Initialize the PDET/RF-FILT Register */
+	/* \x0b\xc0\xc0\x01\x01\x03\xc7\x00\x03\x00\x00\x00\xe6 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
+						  /* 0xc7 */
+						 _RF_FILTER_UHF_RANGE_710_806MHZ | _RF_FILTER_PWRDET_BUF_ON_GC1);
+	if (ret < 0) {
+		debug_printf("Failed to configure the PDET/RF-FILT Register");
+		return ret;
+	}
+
+	/* Initialize the MODE Register */
+	/* \x0b\xc0\xc0\x01\x01\x04\x00\x00\x04\x00\x00\x00\x22 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_MODE_REG, 
+						  /* 0x00 */
+						 _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | 
+						 _MODE_REG_ENABLE_3RD_STAGE_RFVGA);
+	if (ret < 0) {
+		debug_printf("Failed to configure the MODE Register");
+		return ret;
+	}
+
+	/* Initialize the R-Divider MSB Register */
+	/* \x0b\xc0\xc0\x01\x01\x05\x38\x00\x05\x00\x00\x00\x5d */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_MSB_REG, 
+						  /* 0x38, 56 decimal */
+						 _RDIVIDER_MSB_REG_PLL_DIVIDER(56));
+	if (ret < 0) {
+		debug_printf("Failed to configure the R-Divider MSB Register");
+		return ret;
+	}
+	
+	/* Initialize the R-Divider LSB/CP Register */
+	/* \x0b\xc0\xc0\x01\x01\x06\x00\x00\x06\x00\x00\x00\x99 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_LSB_REG, 
+						  /* 0x00 */
+						 _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR |
+						 _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA);
+	if (ret < 0) {
+		debug_printf("Failed to configure the R-Divider LSB/CP Register");
+		return ret;
+	}
+
+	/* Initialize the N-Divider to 1658 decimal (0x067a) */
+
+	/* Initialize the N-Divider MSB Register */
+	/* \x0b\xc0\xc0\x01\x01\x07\x67\x00\x07\x00\x00\x00\xd5 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
+						  /* 0x67 */
+						 _NDIVIDER_MSB_REG_PLL_MOST_DIV(0x67));
+	if (ret < 0) {
+		debug_printf("Failed to configure the N-Divider MSB Register");
+		return ret;
+	}
+	
+	/* Initialize the N-Divider LSB/LIN Register */
+	/* \x0b\xc0\xc0\x01\x01\x08\xa0\x00\x08\x00\x00\x00\x11 */
+	ret = ib200_i2c_write(devh, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
+						  /* 0xa0 */
+						 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
+						 _NDIVIDER_LSB_REG_MIX_NORMAL | 
+						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa));
+	if (ret < 0) {
+		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
+		return ret;
+	}
+
+	return 0;
 }
 
 int
@@ -141,7 +270,7 @@ ib200_init(libusb_device_handle *devh)
 	int i, ret;
 	int bConfiguration, bInterfaceNumber, bAlternateSetting;
 
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 
 	/* Check if any kernel driver already claimed this device */
 	bInterfaceNumber = 0;
@@ -150,7 +279,7 @@ ib200_init(libusb_device_handle *devh)
 		debug_printf("Error: the kernel is already handling this device");
 		return 1;
 	}
-
+	
 	/* Specify which bConfiguration to use. This device has only one. */
 	bConfiguration = 1;
 	ret = libusb_set_configuration(devh, bConfiguration);
@@ -179,7 +308,7 @@ ib200_init(libusb_device_handle *devh)
 		return 1;
 	}
 
-	/* Configure first endpoint */
+	/* Get status from first endpoint */
 	/*                                          ------------- request_type
 	 *                                         /  ---------------- request
 	 *                                        /  /  ---------------- value
@@ -198,29 +327,12 @@ ib200_init(libusb_device_handle *devh)
 	}
 	hexdump(buf, 0x2);
 
-	/*                                          ------------- request_type
-	 *                                         /  ---------------- request
-	 *                                        /  /  ---------------- value
-	 *                                       /  /  /    ------------ index
-	 *                                      /  /  /    /     -- buffer_len
-	 *                                     /  /  /    /     /   /
-	 * cc128600 4010454306 S Co:1:017:0 s 40 01 000b 0000 000d 13 = 0b000082 01003a80 78fba181 00
-	 * cc128600 4010454493 C Co:1:017:0 0 13 >
-	 */
-	request = 1; value = 0x0b; index = 0;
-	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
-	for (i=0; i<sizeof(ib200_init_data_ep1)/sizeof(char*); ++i) {
-		hexdump((unsigned char *) ib200_init_data_ep1[i], 13);
-		ret = libusb_control_transfer(devh, request_type, request, value, index, 
-				(unsigned char *) ib200_init_data_ep1[i], 13, timeout);
-		if (ret < 0) {
-			debug_printf("libusb_control_transfer: failed with error %d", ret);
-			return 1;
-		}
-		usleep(ib200_init_delays_ep1[i] * 1000);
-	}
+	/* Initialize the MAX2163 registers */
+	ret = ib200_max2163_init(devh);
+	if (ret < 0)
+		return 1;
 
-	/* Configure second endpoint */
+	/* Get status from second endpoint */
 	request = 1; value = 0x01; index = 0;
 	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
 	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, 2, timeout);
@@ -271,7 +383,7 @@ ib200_set_frequency(libusb_device_handle *devh, int frequency)
 		773, 779, 785, 791, 797, 803
 	};
 
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 
 	for (i=0; i<sizeof(valid_frequencies)/sizeof(int); ++i)
 		if (valid_frequencies[i] == frequency) {
@@ -288,14 +400,14 @@ ib200_set_frequency(libusb_device_handle *devh, int frequency)
 bool
 ib200_has_signal(libusb_device_handle *devh)
 {
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 	return true;
 }
 
 ssize_t
 ib200_read(libusb_device_handle *devh, void *buf, size_t count)
 {
-	printf("--> %s\n", __FUNCTION__);
+	debug_printf("<--");
 	return 0;
 }
 
