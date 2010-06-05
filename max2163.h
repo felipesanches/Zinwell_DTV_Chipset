@@ -128,7 +128,7 @@
  * All bits are used to set the PLL reference divider (R) number.
  * default R divide value is 126 decimal. R can range from 16 to 511 decimal.
  */
-#define _RDIVIDER_MSB_REG_PLL_DIVIDER(num)   (num & 0xff)
+#define _RDIVIDER_MSB_REG_PLL_DIVIDER(num)   ((num) & 0xff)
 
 #define MAX2163_I2C_RDIVIDER_LSB_REG           0x06
 #define _RDIVIDER_LSB_REG_MASK                 0xdd
@@ -153,7 +153,7 @@
  * divide number (N). Default integer divide value is N = 1952 decimal. N 
  * can range from 1314 to 2687.
  */
-#define _NDIVIDER_MSB_REG_PLL_MOST_DIV(num)   (num & 0xff)
+#define _NDIVIDER_MSB_REG_PLL_MOST_DIV(num)   ((num) & 0xff)
 
 #define MAX2163_I2C_NDIVIDER_LSB_REG           0x08
 #define _NDIVIDER_LSB_REG_MASK                 0xf7
@@ -164,7 +164,7 @@
 #define _NDIVIDER_LSB_REG_MIX_NORMAL         ((0x00 << 2) & 0x04)
 #define _NDIVIDER_LSB_REG_MIX_HIGH           ((0x01 << 2) & 0x04)
 #define _NDIVIDER_LSB_REG_FACTORY_USE        ((0x00 << 3) & 0x08)
-#define _NDIVIDER_LSB_REG_PLL_LEAST_DIV(num) (((num) << 4) & 0xf0)
+#define _NDIVIDER_LSB_REG_PLL_LEAST_DIV(num) ((num) & 0xf0)
 
 /* Read-only register */
 #define MAX2163_I2C_STATUS_REG                 0x09

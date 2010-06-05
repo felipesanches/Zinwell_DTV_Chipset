@@ -30,6 +30,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <getopt.h>
+#include <errno.h>
+#include <pthread.h>
 #include <libusb.h>
 
 #include "zinwell.h"
@@ -39,12 +41,33 @@
 #define ZINWELL_VENDOR_ID      0x5a57
 #define IB200_PRODUCT_ID       0x4210   /* ISDB-T DTV UB-10 */
 #define IB200_CONFIG_ENDPOINT  0x82
+#define IB200_DEFAULT_RDIVIDER 0x38     /* default PLL divider */
 
-libusb_device_handle *
+/**
+ * The following addresses are used when communicating with the USB device:
+ *  \x0b\x00\x00\x82 -> unknown, looks like direct communication with the SMI-2020CBE
+ *  \x0b\xc0\xc0\x01 -> MAX2163 I2C registers
+ *  \x0b\xee\xc0\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
+ *  \x0b\xee\xc4\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
+ *  \x0b\xee\xe0\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
+ */
+
+struct ib200_handle {
+	libusb_device_handle *devh;
+	pthread_mutex_t lock;
+	pthread_cond_t cond;
+	bool packet_arrived;
+	bool device_closed;
+	void *read_buffer;
+	size_t read_count;
+};
+
+struct ib200_handle *
 ib200_open_device(libusb_device **devlist, size_t n)
 {
 	int ret;
 	ssize_t i;
+	struct ib200_handle *handle;
 	libusb_device_handle *devh;
 
 	debug_printf("<--");
@@ -65,7 +88,18 @@ ib200_open_device(libusb_device **devlist, size_t n)
 				debug_printf("libusb_open: failed with error %d", ret);
 				return NULL;
 			}
-			return devh;
+			handle = calloc(1, sizeof(struct ib200_handle));
+			if (! handle) {
+				libusb_close(devh);
+				perror("malloc");
+				return NULL;
+			}
+			handle->devh = devh;
+			handle->packet_arrived = false;
+			handle->device_closed = false;
+			pthread_mutex_init(&handle->lock, NULL);
+			pthread_cond_init(&handle->cond, NULL);
+			return handle;
 		}
 	}
 
@@ -74,10 +108,20 @@ ib200_open_device(libusb_device **devlist, size_t n)
 }
 
 void
-ib200_close_device(libusb_device_handle *devh)
+ib200_close_device(struct ib200_handle *handle)
 {
 	debug_printf("<--");
-	libusb_close(devh);
+	if (handle) {
+		pthread_mutex_lock(&handle->lock);
+		handle->device_closed = true;
+		pthread_cond_signal(&handle->cond);
+		pthread_mutex_unlock(&handle->lock);
+
+		libusb_close(handle->devh);
+		pthread_mutex_destroy(&handle->lock);
+		pthread_cond_destroy(&handle->cond);
+		free(handle);
+	}
 }
 
 /**
@@ -195,7 +239,7 @@ ib200_endpoint_init(libusb_device_handle *devh)
 int
 ib200_max2163_init(libusb_device_handle *devh)
 {
-	int ret;
+	int i, ret;
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 
 	/* Initialize the IF Filter Register */
@@ -252,8 +296,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the R-Divider MSB Register */
 	/* \x0b\xc0\xc0\x01\x01\x05\x38\x00\x05\x00\x00\x00\x5d */
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_MSB_REG, 
-						  /* 0x38, 56 decimal */
-						 _RDIVIDER_MSB_REG_PLL_DIVIDER(56));
+						 _RDIVIDER_MSB_REG_PLL_DIVIDER(IB200_DEFAULT_RDIVIDER));
 	if (ret < 0) {
 		debug_printf("Failed to configure the R-Divider MSB Register");
 		return ret;
@@ -269,8 +312,6 @@ ib200_max2163_init(libusb_device_handle *devh)
 		debug_printf("Failed to configure the R-Divider LSB/CP Register");
 		return ret;
 	}
-
-	/* Initialize the N-Divider to 1658 decimal (0x067a) */
 
 	/* Initialize the N-Divider MSB Register */
 	/* \x0b\xc0\xc0\x01\x01\x07\x67\x00\x07\x00\x00\x00\xd5 */
@@ -288,17 +329,21 @@ ib200_max2163_init(libusb_device_handle *devh)
 						  /* 0xa0 */
 						 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
 						 _NDIVIDER_LSB_REG_MIX_NORMAL | 
-						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa));
+						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa0));
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
 		return ret;
 	}
 
+	/* Initialize the Factory-Use Registers */
+	for (i=MAX2163_I2C_RESERVED1_REG; i<=MAX2163_I2C_RESERVED7_REG; ++i)
+		ib200_i2c_write(devh, addr, 0x0b, 0x00, i, 0x00); 
+
 	return 0;
 }
 
 int
-ib200_init(libusb_device_handle *devh)
+ib200_init(struct ib200_handle *handle)
 {
 	uint8_t request_type, request;
 	uint16_t value, index;
@@ -306,6 +351,7 @@ ib200_init(libusb_device_handle *devh)
 	unsigned char buf[65535];
 	int i, ret;
 	int bConfiguration, bInterfaceNumber, bAlternateSetting;
+	libusb_device_handle *devh = handle->devh;
 
 	debug_printf("<--");
 
@@ -412,11 +458,19 @@ ib200_init(libusb_device_handle *devh)
 	return 0;
 }
 
+/**
+ * Tune to a given frequency.
+ * @param devh USB device handle
+ * @param freq frequency to tune to
+ * @return 0 on success or a negative value on error
+ */
 int 
-ib200_set_frequency(libusb_device_handle *devh, int frequency)
+ib200_set_frequency(struct ib200_handle *handle, int frequency)
 {
-	bool is_valid_frequency = false;
-	int i, valid_frequencies[] = {
+	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
+	libusb_device_handle *devh = handle->devh;
+	int i, ret, rflt_reg, n_divider;
+	int valid_frequencies[] = {
 		473, 479, 485, 491, 497, 503, 509, 515, 521, 527, 
 		533, 539, 545, 551, 557, 563, 569, 575, 581, 587, 
 		593, 599, 605, 611, 617, 623, 629, 635, 641, 647, 
@@ -424,8 +478,7 @@ ib200_set_frequency(libusb_device_handle *devh, int frequency)
 		713, 719, 725, 731, 737, 743, 749, 755, 761, 767, 
 		773, 779, 785, 791, 797, 803
 	};
-
-	debug_printf("<--");
+	bool is_valid_frequency = false;
 
 	for (i=0; i<sizeof(valid_frequencies)/sizeof(int); ++i)
 		if (valid_frequencies[i] == frequency) {
@@ -433,23 +486,123 @@ ib200_set_frequency(libusb_device_handle *devh, int frequency)
 			break;
 		}
 
-	if (! is_valid_frequency)
+	if (! is_valid_frequency) {
 		debug_printf("Warning: there are no known broadcasters on frequency %d.", frequency);
+		return -EINVAL;
+	}
+
+	if (frequency < 488)
+		rflt_reg = _RF_FILTER_UHF_RANGE_470_488MHZ;
+	else if (frequency < 512)
+		rflt_reg = _RF_FILTER_UHF_RANGE_488_512MHZ;
+	else if (frequency < 542)
+		rflt_reg = _RF_FILTER_UHF_RANGE_512_542MHZ;
+	else if (frequency < 572)
+		rflt_reg = _RF_FILTER_UHF_RANGE_542_572MHZ;
+	else if (frequency < 608)
+		rflt_reg = _RF_FILTER_UHF_RANGE_572_608MHZ;
+	else if (frequency < 656)
+		rflt_reg = _RF_FILTER_UHF_RANGE_608_656MHZ;
+	else if (frequency < 710)
+		rflt_reg = _RF_FILTER_UHF_RANGE_656_710MHZ;
+	else
+		rflt_reg = _RF_FILTER_UHF_RANGE_710_806MHZ;
+
+
+	/* Initialize the RF Filter Register at 0x03 */
+	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
+						  rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED);
+	if (ret < 0) {
+		debug_printf("Failed to configure the RF Filter Register");
+		return ret;
+	}
+	
+	/* Initialize the N-Divider Registers */
+	n_divider = (frequency * IB200_DEFAULT_RDIVIDER) + 40;
+	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
+						 _NDIVIDER_MSB_REG_PLL_MOST_DIV(n_divider >> 8));
+	if (ret < 0) {
+		debug_printf("Failed to configure the N-Divider MSB Register");
+		return ret;
+	}
+	
+	/* Initialize the N-Divider LSB/LIN Register */
+	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
+						 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
+						 _NDIVIDER_LSB_REG_MIX_NORMAL | 
+						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(n_divider));
+	if (ret < 0) {
+		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
+		return ret;
+	}
 
 	return 0;
 }
 	
 bool
-ib200_has_signal(libusb_device_handle *devh)
+ib200_has_signal(struct ib200_handle *handle)
 {
+	//libusb_device_handle *devh = handle->devh;
 	debug_printf("<--");
 	return true;
 }
 
-ssize_t
-ib200_read(libusb_device_handle *devh, void *buf, size_t count)
+static void 
+iso_callback(struct libusb_transfer *transfer)
 {
-	debug_printf("<--");
+    int i, buf_index=0;
+	struct ib200_handle *handle = (struct ib200_handle *) transfer->user_data;
+
+	debug_printf("iso_callback called");
+    for (i=0; i<transfer->num_iso_packets; ++i) {
+		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
+		unsigned char *pbuf = transfer->buffer + buf_index;
+		buf_index+=desc->length;
+		if (desc->actual_length != 0) {
+			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
+			hexdump(pbuf, desc->actual_length);
+		}
+		pthread_mutex_lock(&handle->lock);
+		handle->packet_arrived = true;
+		pthread_cond_signal(&handle->cond);
+		pthread_mutex_unlock(&handle->lock);
+	}
+	libusb_free_transfer(transfer);
+}
+
+ssize_t
+ib200_read(struct ib200_handle *handle, void *buf, size_t count)
+{
+	libusb_device_handle *devh = handle->devh;
+	struct libusb_transfer *transfer;
+	int ret;
+
+	if ((count % 188) != 0)
+		count = count - (count % 188);
+
+	transfer = libusb_alloc_transfer(count / 188);
+	if (! transfer) {
+		perror("libusb_alloc_transfer");
+		return -ENOMEM;
+	}
+
+	pthread_mutex_lock(&handle->lock);
+	handle->packet_arrived = false;
+	pthread_mutex_unlock(&handle->lock);
+
+	libusb_fill_iso_transfer(transfer, devh, IB200_CONFIG_ENDPOINT, buf, count, count / 188, iso_callback, NULL, 0);
+	ret = libusb_submit_transfer(transfer);
+	if (ret) {
+		debug_printf("Error submitting transfer");
+		return -ret;
+	}
+
+	debug_printf("aguardando reply");
+	pthread_mutex_lock(&handle->lock);
+	while (! handle->packet_arrived)
+		pthread_cond_wait(&handle->cond, &handle->lock);
+	pthread_mutex_unlock(&handle->lock);
+
 	return 0;
 }
 
@@ -458,6 +611,7 @@ struct user_options {
 	int frequency;
 	bool initialize;
 	bool check_signal;
+	char *writeto;
 };
 
 void
@@ -468,6 +622,7 @@ show_usage(char *appname)
 		   "  -i, --init                Initialize tuner\n"
 		   "  -f, --frequency <freq>    Tune to frequency <freq>\n"
 		   "  -s, --check-signal        Check signal\n"
+		   "  -w  --writeto=<file>      Write transport stream packets to <file>\n"
 		   "  -h, --help                This help\n"
 		   , appname);
 
@@ -477,11 +632,12 @@ struct user_options *
 parse_args(int argc, char **argv)
 {
 	struct user_options *opts, zeroed_opts;
-	const char *short_options = "if:sh";
+	const char *short_options = "if:sw:h";
 	struct option long_options[] = {
 		{ "init", 0, 0, 0 },
 		{ "frequency", 1, 0, 'f' },
 		{ "check-signal", 0, 0, 0 },
+		{ "writeto", 0, 0, 'w' },
 		{ "help", 0, 0, 0 },
 	};
 
@@ -508,12 +664,15 @@ parse_args(int argc, char **argv)
 			case 's':
 				opts->check_signal = true;
 				break;
+			case 'w':
+				opts->writeto = strdup(optarg);
+				break;
 			case 'h':
 				show_usage(argv[0]);
 				exit(0);
 			case '?':
 			default:
-				break;
+				exit(1);
 		}
 	}
 
@@ -534,7 +693,7 @@ main(int argc, char **argv)
 	bool has_signal;
 	libusb_context *ctx;
 	libusb_device **dev_list;
-	libusb_device_handle *devh = NULL;
+	struct ib200_handle *handle;
 	struct user_options *user_options;
 
 	user_options = parse_args(argc, argv);
@@ -553,31 +712,46 @@ main(int argc, char **argv)
 		goto out_exit;
 	}
 
-	devh = ib200_open_device(dev_list, n);
-	if (! devh)
+	handle = ib200_open_device(dev_list, n);
+	if (! handle)
 		goto out_free;
 
 	if (user_options->initialize) {
-		ret = ib200_init(devh);
+		ret = ib200_init(handle);
 		if (ret < 0)
 			goto out_close;
 	}
 
 	if (user_options->frequency) {
-		ret = ib200_set_frequency(devh, user_options->frequency);
+		ret = ib200_set_frequency(handle, user_options->frequency);
 		if (ret < 0)
 			goto out_close;
 	}
 
 	if (user_options->check_signal) {
-		has_signal = ib200_has_signal(devh);
+		has_signal = ib200_has_signal(handle);
 		printf("ib200_has_signal: %d\n", has_signal);
 	}
 
-	sleep(3);
+	if (user_options->writeto) {
+		char buf[188 * 10];
+		FILE *fp = fopen(user_options->writeto, "w+");
+		if (! fp) {
+			perror(user_options->writeto);
+			goto out_close;
+		}
+		while (true) {
+			ret = ib200_read(handle, buf, sizeof(buf));
+			printf("read %d bytes from the tuner\n", ret);
+			if (ret <= 0)
+				break;
+			fwrite(buf, ret, sizeof(char), fp);
+		}
+		fclose(fp);
+	}
 
 out_close:
-	ib200_close_device(devh);
+	ib200_close_device(handle);
 out_free:
 	libusb_free_device_list(dev_list, 1);
 out_exit:

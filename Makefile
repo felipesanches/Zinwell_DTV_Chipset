@@ -1,5 +1,5 @@
 CFLAGS = -D_GNU_SOURCE -Wall `pkg-config libusb-1.0 --cflags`
-LDFLAGS = `pkg-config libusb-1.0 --libs`
+LDFLAGS = `pkg-config libusb-1.0 --libs` -lpthread
 CC = gcc
 TARGETS = zinwell
 
