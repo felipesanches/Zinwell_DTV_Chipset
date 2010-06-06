@@ -45,11 +45,11 @@
 
 /**
  * The following addresses are used when communicating with the USB device:
- *  \x0b\x00\x00\x82 -> unknown, looks like direct communication with the SMI-2020CBE
+ *  \x0b\x00\x00\x82 -> Direct communication with the SMI-2020CBE (endpoint 0x82)
  *  \x0b\xc0\xc0\x01 -> MAX2163 I2C registers
- *  \x0b\xee\xc0\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
- *  \x0b\xee\xc4\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
- *  \x0b\xee\xe0\x01 -> unknown, perhaps this maps to MegaChips' MA50159 registers?
+ *  \x0b\xee\xc0\x01 -> Firmware code upload address prefix
+ *  \x0b\xee\xc4\x01 -> Unknown, currently calling it a "shadow register"
+ *  \x0b\xee\xe0\x01 -> Unknown, perhaps this maps to MegaChips' MA50159 registers?
  */
 
 struct ib200_handle {
@@ -132,10 +132,12 @@ ib200_close_device(struct ib200_handle *handle)
  * @param wIndex wIndex, as specified by the USB Specification 2.0
  * @param reg I2C register to write to
  * @param val value to write to the I2C register
+ * @param last value to write in the last byte of the command
  * @return 0 on success or a negative value on error.
  */
 static int
-ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char reg, unsigned char val)
+ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char reg, 
+	unsigned char val, unsigned char last)
 {
 	int ret;
 	unsigned int timeout;
@@ -143,12 +145,50 @@ ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
 	unsigned char addr_low = addr & 0xff;
-	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, stub, stub, stub, stub, stub, stub };
+	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, stub, reg, stub, stub, stub, last };
 
-	timeout = 1000;
 	bRequest = 1;
+	timeout = 1000;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
 	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+	usleep(10000);
+	return 0;
+}
+
+/**
+ * Write to the unknown 0beec401 address. I'm calling this a "shadow" register, as the last byte written to the I2C
+ * (which seems to be a random value) gets also written to this "shadow" register at some points.
+ * @param reg 4-byte I2C register. MSB is mapped to the 9th byte, LSB to the 12th byte.
+ * @param last value to write in the last byte of the command
+ * @return 0 on success or a negative value on error.
+ */
+static int
+ib200_shadow_write(libusb_device_handle *devh, uint32_t reg, unsigned char last)
+{
+	int ret;
+	unsigned int timeout;
+	uint16_t wValue, wIndex;
+	uint8_t bRequestType, bRequest;
+	unsigned char cmd[13] = { 
+		0x0b, 0xee, 0xc4, 0x01, 
+		0x01, 0x02, 0x01, 0x00, 
+		((reg >> 24) & 0xff), 
+		((reg >> 16) & 0xff), 
+		((reg >>  8) & 0xff), 
+		((reg)       & 0xff), 
+		last 
+	};
+	
+	bRequest = 1;
+	wValue = 0x0b;
+	wIndex = 0x00;
+	timeout = 1000;
+	bRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	ret = libusb_control_transfer(devh, bRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return ret;
@@ -192,6 +232,7 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 
 /**
  * It's still unclear which features are being configured at this stage.
+ * It looks like the commands are 0x34, 0x35, 0x3a and 0x3b.
  */
 int
 ib200_endpoint_init(libusb_device_handle *devh)
@@ -230,6 +271,11 @@ ib200_endpoint_init(libusb_device_handle *devh)
 	if (ret < 0)
 		return ret;
 
+	/* \x0b\xee\xc4\x01\x01\x02\x01\x00\x58\x39\x52\xba\x0d */
+	ret = ib200_shadow_write(devh, 0x583952ba, 0x0d);
+	if (ret < 0)
+		return ret;
+
 	return 0;
 }
 
@@ -240,118 +286,180 @@ int
 ib200_max2163_init(libusb_device_handle *devh)
 {
 	int i, ret;
+	unsigned char random_val;
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 
 	/* Initialize the IF Filter Register */
-	/* \x0b\xc0\xc0\x01\x01\x00\x6f\x00\x00\x00\x00\x00\x33 */
+	random_val = 0x33;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_IF_FILTER_REG, 
-						  /* 0x6f */
-						 _IF_FILTER_13MHZ_BANDWIDTH | _IF_FILTER_BIAS_CURRENT | _IF_FILTER_CENTER_FREQUENCY_1_00);
+			/* 0x6f */ _IF_FILTER_13MHZ_BANDWIDTH | _IF_FILTER_BIAS_CURRENT | 
+			_IF_FILTER_CENTER_FREQUENCY_1_00,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_IF_FILTER_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the IF Filter Register");
 		return ret;
 	}
 
+
 	/* Initialize the VAS Register */
-	/* \x0b\xc0\xc0\x01\x01\x01\xb7\x00\x01\x00\x00\x00\x6e */
+	random_val = 0x6e;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_VAS_REG, 
-						  /* 0xb7 */
-						 _VAS_REG_AUTOSELECT_45056_WAIT_TIME | _VAS_REG_CPS_AUTOMATIC | _VAS_REG_START_AT_CURR_USED_REGS);
+			/* 0xb7 */ _VAS_REG_AUTOSELECT_45056_WAIT_TIME | _VAS_REG_CPS_AUTOMATIC | 
+			_VAS_REG_START_AT_CURR_USED_REGS,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_VAS_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the VAS Register");
 		return ret;
 	}
 
 	/* Initialize the VCO Register */
-	/* \x0b\xc0\xc0\x01\x01\x02\x29\x00\x02\x00\x00\x00\xaa" */
+	random_val = 0xaa;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_VCO_REG, 
-						  /* 0x29 */
-						 _VCO_REG_VCOB_LOW_POWER | _VCO_REG_SUB_BAND_3 | _VCO_REG_VCO_1);
+			/* 0x29 */ _VCO_REG_VCOB_LOW_POWER | _VCO_REG_SUB_BAND_3 | _VCO_REG_VCO_1,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_VCO_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the VCO Register");
 		return ret;
 	}
 
 	/* Initialize the PDET/RF-FILT Register */
-	/* \x0b\xc0\xc0\x01\x01\x03\xc7\x00\x03\x00\x00\x00\xe6 */
+	random_val = 0xe6;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
-						  /* 0xc7 */
-						 _RF_FILTER_UHF_RANGE_710_806MHZ | _RF_FILTER_PWRDET_BUF_ON_GC1);
+			/* 0xc7 */ _RF_FILTER_UHF_RANGE_710_806MHZ | _RF_FILTER_PWRDET_BUF_ON_GC1,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the PDET/RF-FILT Register");
 		return ret;
 	}
 
 	/* Initialize the MODE Register */
-	/* \x0b\xc0\xc0\x01\x01\x04\x00\x00\x04\x00\x00\x00\x22 */
+	random_val = 0x22;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_MODE_REG, 
-						  /* 0x00 */
-						 _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | 
-						 _MODE_REG_ENABLE_3RD_STAGE_RFVGA);
+			/* 0x00 */ _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | 
+			_MODE_REG_ENABLE_3RD_STAGE_RFVGA,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_MODE_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the MODE Register");
 		return ret;
 	}
 
 	/* Initialize the R-Divider MSB Register */
-	/* \x0b\xc0\xc0\x01\x01\x05\x38\x00\x05\x00\x00\x00\x5d */
+	random_val = 0x5d;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_MSB_REG, 
-						 _RDIVIDER_MSB_REG_PLL_DIVIDER(IB200_DEFAULT_RDIVIDER));
+			_RDIVIDER_MSB_REG_PLL_DIVIDER(IB200_DEFAULT_RDIVIDER),
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_MSB_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the R-Divider MSB Register");
 		return ret;
 	}
 	
 	/* Initialize the R-Divider LSB/CP Register */
-	/* \x0b\xc0\xc0\x01\x01\x06\x00\x00\x06\x00\x00\x00\x99 */
+	random_val = 0x99;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_LSB_REG, 
-						  /* 0x00 */
-						 _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR |
-						 _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA);
+			/* 0x00 */ _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR | 
+			_RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA,
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_LSB_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the R-Divider LSB/CP Register");
 		return ret;
 	}
 
 	/* Initialize the N-Divider MSB Register */
-	/* \x0b\xc0\xc0\x01\x01\x07\x67\x00\x07\x00\x00\x00\xd5 */
+	random_val = 0xd5;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
-						  /* 0x67 */
-						 _NDIVIDER_MSB_REG_PLL_MOST_DIV(0x67));
+			/* 0x67 */ _NDIVIDER_MSB_REG_PLL_MOST_DIV(0x67),
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_MSB_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider MSB Register");
 		return ret;
 	}
 	
 	/* Initialize the N-Divider LSB/LIN Register */
-	/* \x0b\xc0\xc0\x01\x01\x08\xa0\x00\x08\x00\x00\x00\x11 */
+	random_val = 0x11;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
-						  /* 0xa0 */
-						 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-						 _NDIVIDER_LSB_REG_MIX_NORMAL | 
-						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa0));
+			/* 0xa0 */ _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
+			_NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa0),
+			random_val);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG << 24, random_val);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
 		return ret;
 	}
 
-	/* Initialize the Factory-Use Registers */
-	for (i=MAX2163_I2C_RESERVED1_REG; i<=MAX2163_I2C_RESERVED7_REG; ++i)
-		ib200_i2c_write(devh, addr, 0x0b, 0x00, i, 0x00); 
+	/* Initialize non-documented registers */
+	for (i=0x11; i<=0x16; ++i) {
+		unsigned char cmd[13] = { 0x0b, (addr>>8) & 0xff, addr & 0xff, 0x01, 0x01, i, 0, 0, i-0x11, 0, 0, 0, 0x11 };
+		libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT, 
+			1, 0x0b, 0x00, cmd, sizeof(cmd), 1000);
+		if (i < 0x16)
+			ib200_shadow_write(devh, (i-0x11) << 24, 0x00);
+	}
 
+	return 0;
+}
+
+int
+ib200_upload_firmware(libusb_device_handle *devh)
+{
+	int i, ret;
+	unsigned int timeout;
+	uint16_t wValue, wIndex;
+	uint8_t bmRequestType, bRequest;
+	unsigned char firmware[56] = {
+		0x01, 0x01, 0x04, 0x08, 0x05, 0x01, 0x06, 0x00, 
+		0x15, 0xf8, 0x19, 0xcc, 0x4d, 0x08, 0x70, 0x02, 
+		0x08, 0x28, 0x09, 0x10, 0x40, 0x0d, 0x43, 0xf8, 
+		0x47, 0xc0, 0x48, 0x7f, 0xa1, 0x40, 0xa5, 0x4c, 
+		0xb9, 0xd9, 0xac, 0x01, 0xad, 0x80, 0xae, 0x43, 
+		0xaf, 0x01, 0xb0, 0x22, 0xbd, 0xe9, 0xc0, 0x1c, 
+		0xc4, 0x20, 0xc5, 0x04, 0xca, 0x33, 0x01, 0x02
+	};
+	unsigned char cmd[13] = { 0x0b, 0xee, 0xc0, 0x01, 0x01, 0x00, 0x00, 0xba, 0xe6, 0x44, 0x9f, 0x3e, 0x58 };
+
+	timeout = 1000;
+	bRequest = 1;
+	wValue = 0x0b;
+	wIndex = 0x00;
+	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	for (i=0; i<sizeof(firmware); i+=2) {
+		cmd[5] = firmware[i];
+		cmd[6] = firmware[i+1];
+		ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+		if (ret < 0) {
+			debug_printf("libusb_control_transfer: failed with error %d", ret);
+			return ret;
+		}
+		usleep(10000);
+	}
 	return 0;
 }
 
 int
 ib200_init(struct ib200_handle *handle)
 {
+	libusb_device_handle *devh = handle->devh;
 	uint8_t request_type, request;
 	uint16_t value, index;
 	unsigned int timeout = 1000;
 	unsigned char buf[65535];
-	int i, ret;
-	int bConfiguration, bInterfaceNumber, bAlternateSetting;
-	libusb_device_handle *devh = handle->devh;
+	int ret, bConfiguration, bInterfaceNumber, bAlternateSetting;
 
 	debug_printf("<--");
 
@@ -420,6 +528,12 @@ ib200_init(struct ib200_handle *handle)
 	if (ret < 0)
 		return 1;
 
+	/* Upload firmware */
+	ret = ib200_upload_firmware(devh);
+	if (ret < 0)
+		return 1;
+
+#if 0
 	/* Get status from second endpoint */
 	request = 1; value = 0x01; index = 0;
 	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
@@ -453,7 +567,8 @@ ib200_init(struct ib200_handle *handle)
 		debug_printf("libusb_set_interface_alt_setting: failed with error %d", ret);
 		return 1;
 	}
-	usleep(20*1000);
+//	usleep(20*1000);
+#endif
 
 	return 0;
 }
@@ -511,7 +626,9 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 
 	/* Initialize the RF Filter Register at 0x03 */
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
-						  rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED);
+			 rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0x6e);
 	if (ret < 0) {
 		debug_printf("Failed to configure the RF Filter Register");
 		return ret;
@@ -520,7 +637,9 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	/* Initialize the N-Divider Registers */
 	n_divider = (frequency * IB200_DEFAULT_RDIVIDER) + 40;
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
-						 _NDIVIDER_MSB_REG_PLL_MOST_DIV(n_divider >> 8));
+			 _NDIVIDER_MSB_REG_PLL_MOST_DIV(n_divider >> 8), 0xd5);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0xd5);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider MSB Register");
 		return ret;
@@ -528,9 +647,10 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	
 	/* Initialize the N-Divider LSB/LIN Register */
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
-						 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-						 _NDIVIDER_LSB_REG_MIX_NORMAL | 
-						 _NDIVIDER_LSB_REG_PLL_LEAST_DIV(n_divider));
+			 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
+			 _NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(n_divider), 0x11);
+	if (ret == 0)
+		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG << 24, 0x11);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
 		return ret;
