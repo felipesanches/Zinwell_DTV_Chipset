@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- * Released under the GNU GPL version 
  *
  * For more information on this project, please visit the following URL:
  * http://groups.fsf.org/wiki/LinuxLibre:ISDB_USB_ZINWELL
@@ -140,7 +139,6 @@ ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint
 	unsigned char val, unsigned char last)
 {
 	int ret;
-	unsigned int timeout;
 	uint8_t bmRequestType, bRequest;
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
@@ -148,9 +146,8 @@ ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint
 	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, stub, reg, stub, stub, stub, last };
 
 	bRequest = 1;
-	timeout = 1000;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
-	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return ret;
@@ -170,7 +167,6 @@ static int
 ib200_shadow_write(libusb_device_handle *devh, uint32_t reg, unsigned char last)
 {
 	int ret;
-	unsigned int timeout;
 	uint16_t wValue, wIndex;
 	uint8_t bRequestType, bRequest;
 	unsigned char cmd[13] = { 
@@ -186,9 +182,8 @@ ib200_shadow_write(libusb_device_handle *devh, uint32_t reg, unsigned char last)
 	bRequest = 1;
 	wValue = 0x0b;
 	wIndex = 0x00;
-	timeout = 1000;
 	bRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
-	ret = libusb_control_transfer(devh, bRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+	ret = libusb_control_transfer(devh, bRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return ret;
@@ -210,7 +205,6 @@ static int
 ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char *data)
 {
 	int ret;
-	unsigned int timeout;
 	uint8_t bmRequestType, bRequest;
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
@@ -218,10 +212,9 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 	unsigned char cmd[13] = { wValue, addr_high, addr_low, IB200_CONFIG_ENDPOINT, 0x01, stub, stub, stub, stub, stub, stub, stub, stub };
 
 	memcpy(&cmd[5], data, 8);
-	timeout = 1000;
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
-	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return ret;
@@ -231,16 +224,39 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 }
 
 /**
+ * Initialize the configuration descriptor
  * It's still unclear which features are being configured at this stage.
  * It looks like the commands are 0x34, 0x35, 0x3a and 0x3b.
  */
 int
-ib200_endpoint_init(libusb_device_handle *devh)
+ib200_init_configuration_descriptor(libusb_device_handle *devh)
 {
 	int ret;
-	uint16_t addr = 0x0000;
-	unsigned char data[8];
+	unsigned char buf[65535], data[8];
+	uint8_t request_type, request;
+	uint16_t value, index, addr = 0x0000;
 
+	/* Get status from the configuration descriptor */
+	/*                                          ------------- request_type
+	 *                                         /  ---------------- request
+	 *                                        /  /  ---------------- value
+	 *                                       /  /  /    ------------ index
+	 *                                      /  /  /    /     -- buffer_len
+	 *                                     /  /  /    /     /   /
+	 * edbd5e00 2053267881 S Ci:1:017:0 s c0 01 0001 0000 0002 2 <
+	 * edbd5e00 2053268007 C Ci:1:017:0 0 2 = 0103
+	 */
+	request = 1; value = 0x01; index = 0;
+	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, 2, 1000);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return 1;
+	}
+	/* TODO: interpret the 2 bytes returned (0x01 0x03) */
+	hexdump(buf, 0x2);
+
+	/* TODO: interpret the commands below */
 	/* \x0b\x00\x00\x82\x01\x00\x34\x21\xf0\xbc\x33\x89\x00 */
 	memcpy(data, "\x00\x34\x21\xf0\xbc\x33\x89\x00", 8);
 	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
@@ -419,7 +435,6 @@ int
 ib200_upload_firmware(libusb_device_handle *devh)
 {
 	int i, ret;
-	unsigned int timeout;
 	uint16_t wValue, wIndex;
 	uint8_t bmRequestType, bRequest;
 	unsigned char firmware[56] = {
@@ -433,7 +448,6 @@ ib200_upload_firmware(libusb_device_handle *devh)
 	};
 	unsigned char cmd[13] = { 0x0b, 0xee, 0xc0, 0x01, 0x01, 0x00, 0x00, 0xba, 0xe6, 0x44, 0x9f, 0x3e, 0x58 };
 
-	timeout = 1000;
 	bRequest = 1;
 	wValue = 0x0b;
 	wIndex = 0x00;
@@ -441,7 +455,7 @@ ib200_upload_firmware(libusb_device_handle *devh)
 	for (i=0; i<sizeof(firmware); i+=2) {
 		cmd[5] = firmware[i];
 		cmd[6] = firmware[i+1];
-		ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), timeout);
+		ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 		if (ret < 0) {
 			debug_printf("libusb_control_transfer: failed with error %d", ret);
 			return ret;
@@ -450,18 +464,49 @@ ib200_upload_firmware(libusb_device_handle *devh)
 	}
 	return 0;
 }
+	
+int
+ib200_init_ep82(libusb_device_handle *devh)
+{
+	unsigned char data[8], buf[13];
+	uint8_t request_type, request;
+	uint16_t value, index, addr;
+	int ret;
+
+	/* \x0b\x00\x20\x82\x01\x15\x80\x00\x18\x01\x00\x00\x74 */
+	addr = 0x0020;
+	memcpy(data, "\x15\x80\x00\x18\x01\x00\x00\x74", 8);
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0)
+		return ret;
+
+	value = 0x0b;
+	index = 0x00;
+	request = 0x01;
+	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, sizeof(buf), 1000);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+	hexdump(buf, ret);
+	usleep(1000);
+
+	/* \x0b\x00\x00\x82\x01\x15\x80\xc3\x18\x01\x00\x00\x74 */
+	addr = 0x0000;
+	memcpy(data, "\x15\x80\xc3\x18\x01\x00\x00\x74", 8);
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
 
 int
 ib200_init(struct ib200_handle *handle)
 {
 	libusb_device_handle *devh = handle->devh;
-	uint8_t request_type, request;
-	uint16_t value, index;
-	unsigned int timeout = 1000;
-	unsigned char buf[65535];
 	int ret, bConfiguration, bInterfaceNumber, bAlternateSetting;
-
-	debug_printf("<--");
 
 	/* Check if any kernel driver already claimed this device */
 	bInterfaceNumber = 0;
@@ -471,6 +516,9 @@ ib200_init(struct ib200_handle *handle)
 		return 1;
 	}
 	
+	/* Enable LibUSB debug messages */
+	libusb_set_debug(NULL, 3);
+
 	/* Specify which bConfiguration to use. This device has only one. */
 	bConfiguration = 1;
 	ret = libusb_set_configuration(devh, bConfiguration);
@@ -488,7 +536,7 @@ ib200_init(struct ib200_handle *handle)
 
 	/* 
 	 * Specify which bAlternateSetting to use:
-	 * 0: contains no endpoint descriptors
+	 * 0: Configuration Descriptor
 	 * 1: EP 2 IN @ 0x82 - wMaxPacketSize=0x03ff  (1 x 1023 bytes)
 	 * 2: EP 2 IN @ 0x82 - wMaxPacketSize=0x1400  (3 x 1024 bytes)
 	 */
@@ -499,27 +547,8 @@ ib200_init(struct ib200_handle *handle)
 		return 1;
 	}
 
-	/* Get status from first endpoint */
-	/*                                          ------------- request_type
-	 *                                         /  ---------------- request
-	 *                                        /  /  ---------------- value
-	 *                                       /  /  /    ------------ index
-	 *                                      /  /  /    /     -- buffer_len
-	 *                                     /  /  /    /     /   /
-	 * edbd5e00 2053267881 S Ci:1:017:0 s c0 01 0001 0000 0002 2 <
-	 * edbd5e00 2053268007 C Ci:1:017:0 0 2 = 0103
-	 */
-	request = 1; value = 0x01; index = 0;
-	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
-	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, 2, timeout);
-	if (ret < 0) {
-		debug_printf("libusb_control_transfer: failed with error %d", ret);
-		return 1;
-	}
-	hexdump(buf, 0x2);
-
-	/* Initialize unknown things */
-	ret = ib200_endpoint_init(devh);
+	/* Initialize the Configuration Descriptor */
+	ret = ib200_init_configuration_descriptor(devh);
 	if (ret < 0)
 		return 1;
 
@@ -533,42 +562,23 @@ ib200_init(struct ib200_handle *handle)
 	if (ret < 0)
 		return 1;
 
-#if 0
-	/* Get status from second endpoint */
-	request = 1; value = 0x01; index = 0;
-	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
-	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, 2, timeout);
-	if (ret < 0) {
-		debug_printf("libusb_control_transfer: failed with error %d", ret);
-		return 1;
-	}
-	hexdump(buf, 0x2);
-
-	request = 1; value = 0x0b; index = 0;
-	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
-	for (i=0; i<sizeof(ib200_init_data_ep2)/sizeof(char*); ++i) {
-		ret = libusb_control_transfer(devh, request_type, request, value, index, 
-				(unsigned char *) ib200_init_data_ep2[i], 13, timeout);
-		if (ret < 0) {
-			debug_printf("libusb_control_transfer: failed with error %d", ret);
-			return 1;
-		}
-		usleep(ib200_init_delays_ep2[i] * 1000);
-	}
-
-	/* Configuration descriptor */
-	ret = libusb_get_descriptor(devh, LIBUSB_DT_CONFIG, 0x0000000, buf, 0x0000109);
-	if (ret < 0) {
-		debug_printf("libusb_get_descriptor: failed with error %d", ret);
-		return 1;
-	}
-	ret = libusb_set_interface_alt_setting(devh, 0, 1);
+	/* 
+	 * Specify which bAlternateSetting to use:
+	 * 0: Configuration Descriptor
+	 * 1: EP 2 IN @ 0x82 - wMaxPacketSize=0x03ff  (1 x 1023 bytes)
+	 * 2: EP 2 IN @ 0x82 - wMaxPacketSize=0x1400  (3 x 1024 bytes)
+	 */
+	bAlternateSetting = 1;
+	ret = libusb_set_interface_alt_setting(devh, bInterfaceNumber, bAlternateSetting);
 	if (ret < 0) {
 		debug_printf("libusb_set_interface_alt_setting: failed with error %d", ret);
 		return 1;
 	}
-//	usleep(20*1000);
-#endif
+
+	/* Black magic */
+	ret = ib200_init_ep82(devh);
+	if (ret < 0)
+		return 1;
 
 	return 0;
 }
@@ -714,7 +724,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t count)
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
 		debug_printf("Error submitting transfer");
-		return -ret;
+		return ret;
 	}
 
 	debug_printf("aguardando reply");
