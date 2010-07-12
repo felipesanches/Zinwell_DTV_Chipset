@@ -33,7 +33,6 @@
 #include <pthread.h>
 #include <libusb.h>
 
-#include "zinwell.h"
 #include "max2163.h"
 #include "debug.h"
 
@@ -44,11 +43,26 @@
 
 /**
  * The following addresses are used when communicating with the USB device:
- *  \x0b\x00\x00\x82 -> Direct communication with the SMI-2020CBE (endpoint 0x82)
+ *  \x0b\x00\x00\x82 -> Direct communication with the SMI-2020CBE (endpoint 0x82) (most likely)
+ *  \x0b\x00\x20\x82 -> Direct communication with the SMI-2020CBE (endpoint 0x82) (most likely)
  *  \x0b\xc0\xc0\x01 -> MAX2163 I2C registers
  *  \x0b\xee\xc0\x01 -> Firmware code upload address prefix
  *  \x0b\xee\xc4\x01 -> Unknown, currently calling it a "shadow register"
  *  \x0b\xee\xe0\x01 -> Unknown, perhaps this maps to MegaChips' MA50159 registers?
+ *
+ * The following commands were seen being written to \x0b\x00\x20\x82 in preparation 
+ * to submitting an USB ISOCH transfer:
+ *
+ *  <- \x0b\x00\x20\x82\x01\x30\x80\x89\x01\xf5\x31\x89\xa7
+ *  -> 0b 00 20 82 01 30 80 89 01 f5 31 89 a7 ".. ..0....1.."
+ *  
+ *  <- \x0b\x00\x20\x82\x01\x30\x80\x89\x01\x00\x00\x00\xbc
+ *  -> 0b 00 20 82 01 30 80 89 01 00 00 00 bc ".. ..0......."
+ *
+ *  <- \x0b\x00\x20\x82\x01\x30\x80\x89\x00\x37\xe8\x89\xf4
+ *  -> 0b 00 20 82 01 30 80 89 00 37 e8 89 f4 ".. ..0...7..."
+ *
+ * After each of these individual commands, writes to \x0b\x00\x00\x82 are issued.
  */
 
 struct ib200_handle {
@@ -121,6 +135,34 @@ ib200_close_device(struct ib200_handle *handle)
 		pthread_cond_destroy(&handle->cond);
 		free(handle);
 	}
+}
+
+/**
+ * Read from the I2C
+ * @param devh LibUSB device handle
+ * @param wValue wValue, as specified by the USB Specification 2.0
+ * @param wIndex wIndex, as specified by the USB Specification 2.0
+ * @param reg I2C register to read from
+ * @param buf output buffer
+ * @param size buffer size
+ * @return the number of bytes read on success or a negative value on error.
+ */
+static int
+ib200_i2c_read(libusb_device_handle *devh, uint16_t wValue, uint16_t wIndex, 
+	unsigned char *buf, size_t size)
+{
+	int ret;
+	uint8_t bmRequestType, bRequest;
+
+	bRequest = 1;
+	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, buf, size, 1000);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+	usleep(10000);
+	return 0;
 }
 
 /**
@@ -256,7 +298,11 @@ ib200_init_configuration_descriptor(libusb_device_handle *devh)
 	/* TODO: interpret the 2 bytes returned (0x01 0x03) */
 	hexdump(buf, 0x2);
 
-	/* TODO: interpret the commands below */
+	/* 
+	 * TODO: interpret the commands below.
+	 * Based on some other logs it seems like only the first
+	 * 3 bytes are meaningful. The remaning ones looks like garbage.
+	 */
 	/* \x0b\x00\x00\x82\x01\x00\x34\x21\xf0\xbc\x33\x89\x00 */
 	memcpy(data, "\x00\x34\x21\xf0\xbc\x33\x89\x00", 8);
 	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
@@ -287,6 +333,7 @@ ib200_init_configuration_descriptor(libusb_device_handle *devh)
 	if (ret < 0)
 		return ret;
 
+	/* XXX: in another log I noticed 0xf9 instead of 0x39 */
 	/* \x0b\xee\xc4\x01\x01\x02\x01\x00\x58\x39\x52\xba\x0d */
 	ret = ib200_shadow_write(devh, 0x583952ba, 0x0d);
 	if (ret < 0)
@@ -672,8 +719,19 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 bool
 ib200_has_signal(struct ib200_handle *handle)
 {
-	//libusb_device_handle *devh = handle->devh;
-	debug_printf("<--");
+	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
+	libusb_device_handle *devh = handle->devh;
+	unsigned char buf[32];
+	int ret;
+
+	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_STATUS_REG, 0, 0);
+	debug_printf("ib200_i2c_write=%d", ret);
+
+	ret = ib200_i2c_read(devh, 0x0b, 0x00, buf, sizeof(buf));
+	debug_printf("ib200_i2c_read=%d", ret);
+	if (ret > 0)
+		hexdump(buf, ret);
+
 	return true;
 }
 
