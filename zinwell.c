@@ -265,6 +265,78 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 	return 0;
 }
 
+int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value){
+	uint8_t request_type, request;
+	uint16_t value, index, addr;
+	int ret;
+	unsigned char data[8], buf[13];
+
+	addr = 0x0020;
+	memcpy(data, "\x15\x80\x00\x18\x01\x00\x00\x74", 8);
+
+	data[1]=reg;
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0){
+		printf("read_misterious_registers: error writing to endpoint\n");
+		return ret;}
+
+	value = 0x0b;
+	index = 0x00;
+	request = 0x01;
+	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, sizeof(buf), 1000);
+	if (ret < 0) {
+		debug_printf("read_misterious_registers: libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+
+//	hexdump(buf, sizeof(buf));
+	*return_value = buf[7];
+	usleep(1000);
+	return 0;
+}
+
+int write_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char value){
+	int ret;
+	uint16_t addr = 0x0000;
+
+	unsigned char data[8];
+	memcpy(data, "\x15\x00\x00\x18\x01\x00\x00\x74", 8);
+
+	data[1]=reg;
+	data[2]=value;
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0){
+		printf("write_misterious_registers: error writing to endpoint\n");
+		return ret;}
+	return 0;
+}
+
+void test_misterious_registers(libusb_device_handle *devh){
+	int reg, i;
+	unsigned char retval;
+
+	for (reg=0x80;reg<=0xff;reg++){
+		printf("%x: ", reg);
+		for (i=7;i>=0;i--){
+			write_misterious_registers(devh, reg, 1 << i);
+			read_misterious_registers(devh, reg, &retval);
+			if (retval & (1 << i)){
+				write_misterious_registers(devh, reg, 0);
+				read_misterious_registers(devh, reg, &retval);
+				if (retval & (1 << i))
+					printf("1 ");
+				else
+					printf("* ");
+			} else {
+				printf("0 ");
+			}
+		}
+		printf("\n");
+	}
+	return;
+}
+
 /**
  * Initialize the configuration descriptor
  * It's still unclear which features are being configured at this stage.
@@ -800,6 +872,7 @@ struct user_options {
 	bool initialize;
 	bool check_signal;
 	char *writeto;
+	int run_test;
 };
 
 void
@@ -810,7 +883,8 @@ show_usage(char *appname)
 		   "  -i, --init                Initialize tuner\n"
 		   "  -f, --frequency <freq>    Tune to frequency <freq>\n"
 		   "  -s, --check-signal        Check signal\n"
-		   "  -w  --writeto=<file>      Write transport stream packets to <file>\n"
+		   "  -w, --writeto=<file>      Write transport stream packets to <file>\n"
+		   "  -t, --test=<test_number>	Run one of the available development tests\n"
 		   "  -h, --help                This help\n"
 		   , appname);
 
@@ -820,12 +894,13 @@ struct user_options *
 parse_args(int argc, char **argv)
 {
 	struct user_options *opts, zeroed_opts;
-	const char *short_options = "if:sw:h";
+	const char *short_options = "if:sw:t:h";
 	struct option long_options[] = {
 		{ "init", 0, 0, 0 },
 		{ "frequency", 1, 0, 'f' },
 		{ "check-signal", 0, 0, 0 },
 		{ "writeto", 0, 0, 'w' },
+		{ "test", 1, 0, 't' },
 		{ "help", 0, 0, 0 },
 	};
 
@@ -854,6 +929,9 @@ parse_args(int argc, char **argv)
 				break;
 			case 'w':
 				opts->writeto = strdup(optarg);
+				break;
+			case 't':
+				opts->run_test = atoi(optarg);
 				break;
 			case 'h':
 				show_usage(argv[0]);
@@ -936,6 +1014,17 @@ main(int argc, char **argv)
 			fwrite(buf, ret, sizeof(char), fp);
 		}
 		fclose(fp);
+	}
+
+	if (user_options->run_test){
+		switch(user_options->run_test){
+			case 1:
+				printf("Testing misterious registers:\n\n");
+				test_misterious_registers(handle->devh);
+				break;
+			default:
+				printf("run test: uh!?\n");
+		}
 	}
 
 out_close:
