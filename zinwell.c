@@ -234,24 +234,15 @@ ib200_shadow_write(libusb_device_handle *devh, uint32_t reg, unsigned char last)
 	return 0;
 }
 
-/**
- * Write to the USB configuration endpoint
- * @param devh LibUSB device handle
- * @param addr address to write to. The MSB is sent as 2nd argument of the command and the LSB as 3rd.
- * @param wValue wValue, as specified by the USB Specification 2.0
- * @param wIndex wIndex, as specified by the USB Specification 2.0
- * @param data: 8-byte array holding the data to be transferred to the USB configuration endpoint
- * @return 0 on success or a negative value on error.
- */
 static int
-ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char *data)
+endpoint_write(libusb_device_handle *devh, unsigned char endpoint, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char *data)
 {
 	int ret;
 	uint8_t bmRequestType, bRequest;
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
 	unsigned char addr_low = addr & 0xff;
-	unsigned char cmd[13] = { wValue, addr_high, addr_low, IB200_CONFIG_ENDPOINT, 0x01, stub, stub, stub, stub, stub, stub, stub, stub };
+	unsigned char cmd[13] = { wValue, addr_high, addr_low, endpoint, 0x01, stub, stub, stub, stub, stub, stub, stub, stub };
 
 	memcpy(&cmd[5], data, 8);
 	bRequest = 1;
@@ -265,6 +256,23 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 	return 0;
 }
 
+/**
+ * Write to the USB configuration endpoint
+ * @param devh LibUSB device handle
+ * @param addr address to write to. The MSB is sent as 2nd argument of the command and the LSB as 3rd.
+ * @param wValue wValue, as specified by the USB Specification 2.0
+ * @param wIndex wIndex, as specified by the USB Specification 2.0
+ * @param data: 8-byte array holding the data to be transferred to the USB configuration endpoint
+ * @return 0 on success or a negative value on error.
+ */
+static int
+ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char *data)
+{
+	return endpoint_write(devh, IB200_CONFIG_ENDPOINT, addr, wValue, wIndex, data);
+}
+
+// OUT -> 0b 00 20 82 01 15 80 83 18 01 00 00 74
+// IN  <- 0b 00 00 82 01 15 80 c3 18 01 00 00 74
 int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value){
 	uint8_t request_type, request;
 	uint16_t value, index, addr;
@@ -296,6 +304,8 @@ int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, uns
 	return 0;
 }
 
+// OUT -> 0b 00 20 82 01 15 80 83 18 01 00 00 74
+// IN  <- 0b 00 00 82 01 15 80 c3 18 01 00 00 74
 int write_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char value){
 	int ret;
 	uint16_t addr = 0x0000;
@@ -324,6 +334,87 @@ void test_misterious_registers(libusb_device_handle *devh){
 			if (retval & (1 << i)){
 				write_misterious_registers(devh, reg, 0);
 				read_misterious_registers(devh, reg, &retval);
+				if (retval & (1 << i))
+					printf("1 ");
+				else
+					printf("* ");
+			} else {
+				printf("0 ");
+			}
+		}
+		printf("\n");
+	}
+	return;
+}
+
+
+//experimental code: trying to figure out what happens with 0b ee e0 01
+#define MISTREG2 0
+#define MISTVAL2 1
+//         data indexes:  0  1  2  3  4  5  6  7
+// OUT -> 0b ee e0 01 01 32 00 88 04 db 87 8f 00
+// IN  <- 0b ee e0 01 01 32 0a 88 04 db 87 8f 00
+int read_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value){
+	uint8_t request_type, request;
+	uint16_t value, index, addr;
+	int ret;
+	unsigned char data[8], buf[13];
+
+	addr = 0xeee0;
+	memcpy(data, "\x32\x00\x88\x04\xdb\x87\x8f\x00", 8);
+
+	data[MISTREG2]=reg;
+	ret = endpoint_write(devh, 0x01, addr, 0x0b, 0x00, data);
+	if (ret < 0){
+		printf("read_misterious_registers: error writing to endpoint\n");
+		return ret;}
+
+	value = 0x0b;
+	index = 0x00;
+	request = 0x01;
+	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, sizeof(buf), 1000);
+	if (ret < 0) {
+		debug_printf("read_misterious_registers: libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+
+//	hexdump(buf, sizeof(buf));
+	*return_value = buf[5+MISTVAL2];
+	usleep(1000);
+	return 0;
+}
+
+// OUT -> 0b ee e0 01 01 32 00 88 04 db 87 8f 00
+// IN  <- 0b ee e0 01 01 32 0a 88 04 db 87 8f 00
+int write_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char value){
+	int ret;
+	uint16_t addr = 0x0000;
+
+	unsigned char data[8];
+	memcpy(data, "\x32\x00\x88\x04\xdb\x87\x8f\x00", 8);
+
+	data[MISTREG2]=reg;
+	data[MISTVAL2]=value;
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0){
+		printf("write_misterious_registers: error writing to endpoint\n");
+		return ret;}
+	return 0;
+}
+
+void test_misterious_registers_2(libusb_device_handle *devh){
+	int reg, i;
+	unsigned char retval;
+
+	for (reg=0x80;reg<=0xff;reg++){
+		printf("%x: ", reg);
+		for (i=7;i>=0;i--){
+			write_misterious_registers_2(devh, reg, 1 << i);
+			read_misterious_registers_2(devh, reg, &retval);
+			if (retval & (1 << i)){
+				write_misterious_registers_2(devh, reg, 0);
+				read_misterious_registers_2(devh, reg, &retval);
 				if (retval & (1 << i))
 					printf("1 ");
 				else
@@ -587,34 +678,14 @@ ib200_upload_firmware(libusb_device_handle *devh)
 int
 ib200_init_ep82(libusb_device_handle *devh)
 {
-	unsigned char data[8], buf[13];
-	uint8_t request_type, request;
-	uint16_t value, index, addr;
 	int ret;
+	unsigned char value;
 
-	/* \x0b\x00\x20\x82\x01\x15\x80\x00\x18\x01\x00\x00\x74 */
-	addr = 0x0020;
-	memcpy(data, "\x15\x80\x00\x18\x01\x00\x00\x74", 8);
-	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	ret = read_misterious_registers(devh, 0x80, &value);
 	if (ret < 0)
 		return ret;
 
-	value = 0x0b;
-	index = 0x00;
-	request = 0x01;
-	request_type = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
-	ret = libusb_control_transfer(devh, request_type, request, value, index, buf, sizeof(buf), 1000);
-	if (ret < 0) {
-		debug_printf("libusb_control_transfer: failed with error %d", ret);
-		return ret;
-	}
-	hexdump(buf, ret);
-	usleep(1000);
-
-	/* \x0b\x00\x00\x82\x01\x15\x80\xc3\x18\x01\x00\x00\x74 */
-	addr = 0x0000;
-	memcpy(data, "\x15\x80\xc3\x18\x01\x00\x00\x74", 8);
-	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	ret = write_misterious_registers(devh, 0x80, value|0x40); 
 	if (ret < 0)
 		return ret;
 
@@ -1021,6 +1092,10 @@ main(int argc, char **argv)
 			case 1:
 				printf("Testing misterious registers:\n\n");
 				test_misterious_registers(handle->devh);
+				break;
+			case 2:
+				printf("Testing misterious registers 2 (0b ee e0 01):\n\n");
+				test_misterious_registers_2(handle->devh);
 				break;
 			default:
 				printf("run test: uh!?\n");
