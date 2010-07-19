@@ -773,6 +773,118 @@ ib200_init(struct ib200_handle *handle)
 	return 0;
 }
 
+int
+usb_in(libusb_device_handle *devh, unsigned char v0, unsigned char v1,  
+	unsigned char v2, unsigned char v3, unsigned char v4, unsigned char v5, 
+	unsigned char v6, unsigned char v7, unsigned char v8, unsigned char v9, 
+	unsigned char v10, unsigned char v11, unsigned char v12){
+
+	int ret;
+	uint8_t bmRequestType, bRequest;
+	unsigned char buf[13];
+
+	bRequest = 1;
+	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, 0x0b, 0x00, buf, sizeof(buf), 1000);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+
+	usleep(10000);
+
+	if (v0!=buf[0]||v1!=buf[1]||v2!=buf[2]||v3!=buf[3]||v4!=buf[4]||v5!=buf[5]||v6!=buf[6]||
+v7!=buf[7]||v8!=buf[8]||v9!=buf[9]||v10!=buf[10]||v11!=buf[11]||v12!=buf[12])
+		{
+			printf("USB response was different than what we expected to receive!\n");
+			printf("expected:   %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x\n",
+				v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12 );  
+			hexdump(buf,sizeof(buf));
+		}
+	return 0;
+}
+
+int
+usb_out(libusb_device_handle *devh, unsigned char v0, unsigned char v1,  
+	unsigned char v2, unsigned char v3, unsigned char v4, unsigned char v5, 
+	unsigned char v6, unsigned char v7, unsigned char v8, unsigned char v9, 
+	unsigned char v10, unsigned char v11, unsigned char v12){
+
+	int ret;
+	uint8_t bmRequestType, bRequest;
+	unsigned char cmd[13] = {v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12};
+
+	bRequest = 1;
+	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	ret = libusb_control_transfer(devh, bmRequestType, bRequest, 0x0b, 0x00, cmd, sizeof(cmd), 1000);
+	if (ret < 0) {
+		debug_printf("libusb_control_transfer: failed with error %d", ret);
+		return ret;
+	}
+	usleep(10000);
+	return 0;
+}
+
+#define USB_OUT(v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12)\
+	usb_out(devh, 0x##v0, 0x##v1, 0x##v2, 0x##v3, 0x##v4, 0x##v5, 0x##v6,\
+                  0x##v7, 0x##v8, 0x##v9, 0x##v10, 0x##v11, 0x##v12);
+
+#define USB_IN(v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12)\
+	usb_in(devh, 0x##v0, 0x##v1, 0x##v2, 0x##v3, 0x##v4, 0x##v5, 0x##v6,\
+                  0x##v7, 0x##v8, 0x##v9, 0x##v10, 0x##v11, 0x##v12);
+
+int
+tune_to_record(struct ib200_handle *handle){
+	int ret;
+	libusb_device_handle *devh = handle->devh;
+
+	ret = ib200_init(handle);
+	if (ret < 0)
+		return ret;
+
+	USB_OUT( 0b, 00, 20, 82, 01, 30, 80, 89, 01, 10, 6b, 89, 1e)
+	USB_IN ( 0b, 00, 20, 82, 01, 30, 80, 00, 01, 10, 6b, 89, 1e)
+	USB_OUT( 0b, 00, 00, 82, 01, 30, 80, 04, 01, 10, 6b, 89, 1e)
+	USB_OUT( 0b, 00, 00, 82, 01, 30, 80, 00, 00, 00, 00, 00, bc)
+	USB_OUT( 0b, 00, 00, 82, 01, 16, 00, 00, 20, 80, 0d, 88, 43)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 0b, 00, 87, 8f, 00)
+	USB_OUT( 0b, c0, c0, 01, 01, 03, c1, 00, 00, 00, 00, 00, 20)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 00, 00, 00, 00, 20)
+	USB_OUT( 0b, c0, c0, 01, 01, 04, 00, 00, 01, 00, 00, 00, 5b)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 01, 00, 00, 00, 5b)
+	USB_OUT( 0b, c0, c0, 01, 01, 05, 38, 00, 02, 00, 00, 00, 97)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 02, 00, 00, 00, 97)
+	USB_OUT( 0b, c0, c0, 01, 01, 06, 00, 00, 03, 00, 00, 00, d3)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 03, 00, 00, 00, d3)
+	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
+	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 04, 00, 00, 00, 0f)
+	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
+	USB_OUT( 0b, ee, c0, 01, 01, 18, 01, 8f, 03, 00, 00, 00, c0)
+	USB_OUT( 0b, ee, c0, 01, 01, 18, 00, 8f, 03, 00, 00, 00, c0)
+	USB_OUT( 0b, ee, c0, 01, 01, 01, 02, 8f, 03, 00, 00, 00, c0)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, cd, fd, 00, 00, 00, 00, 2b)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 01, fd, 00, 00, 00, 00, 2b)
+	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, 03, 00, 00, 00, c0)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 06, 88, 04, db, 87, 8f, 00)
+	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
+	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
+	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 08, 88, 04, db, 87, 8f, 00)
+	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 0a, 88, 04, db, 87, 8f, 00)
+	USB_OUT( 0b, 00, 20, 82, 01, 15, 80, 00, 32, a7, 4a, 0b, 04)
+	USB_IN ( 0b, 00, 20, 82, 01, 15, 80, 03, 32, a7, 4a, 0b, 04)
+	USB_OUT( 0b, 00, 00, 82, 01, 15, 80, c3, 32, a7, 4a, 0b, 04)
+	return 0;
+}
+
 /**
  * Tune to a given frequency.
  * @param devh USB device handle
@@ -1070,6 +1182,31 @@ main(int argc, char **argv)
 		printf("ib200_has_signal: %d\n", has_signal);
 	}
 
+	if (user_options->run_test){
+		switch(user_options->run_test){
+			case 1:
+				printf("Testing misterious registers:\n\n");
+				test_misterious_registers(handle->devh);
+				break;
+			case 2:
+				printf("Testing misterious registers 2 (0b ee e0 01):\n\n");
+				test_misterious_registers_2(handle->devh);
+				break;
+			case 3:
+				printf("replaying logs to tune to Record:\n\n");
+				ret = tune_to_record(handle);
+				if (ret<0)
+					goto out_close;
+
+				if (!user_options->writeto) {
+					printf("you should try it with -wfilename!\n");
+				}
+				break;
+			default:
+				printf("run test: uh!?\n");
+		}
+	}
+
 	if (user_options->writeto) {
 		char buf[188 * 10];
 		FILE *fp = fopen(user_options->writeto, "w+");
@@ -1085,21 +1222,6 @@ main(int argc, char **argv)
 			fwrite(buf, ret, sizeof(char), fp);
 		}
 		fclose(fp);
-	}
-
-	if (user_options->run_test){
-		switch(user_options->run_test){
-			case 1:
-				printf("Testing misterious registers:\n\n");
-				test_misterious_registers(handle->devh);
-				break;
-			case 2:
-				printf("Testing misterious registers 2 (0b ee e0 01):\n\n");
-				test_misterious_registers_2(handle->devh);
-				break;
-			default:
-				printf("run test: uh!?\n");
-		}
 	}
 
 out_close:
