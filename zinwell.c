@@ -1,7 +1,9 @@
 /**
- * IBayo ISDB-T 1Seg DTV USB device driver
+ * ISDB-T 1Seg DTV USB device driver
+ * IBAYO IB-200 / ZIROK DTV-1 - Zinwell chipset 
  * zinwell.c - main operations
  *
+ * Copyright (c) 2010, Felipe C. da S. Sanches <juca@members.fsf.org>
  * Copyright (c) 2010, Lucas C. Villa Real <lucasvr@gobolinux.org>
  *
  * This program is free software; you can redistribute it and/or modify

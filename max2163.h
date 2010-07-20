@@ -1,5 +1,6 @@
 /**
- * IBayo ISDB-T 1Seg DTV USB device driver
+ * ISDB-T 1Seg DTV USB device driver
+ * IBAYO IB-200 / ZIROK DTV-1 - Zinwell chipset
  * max2163.h - definitions for MAX2163 ISDB-T 1-Segment Tuner IC
  *
  * Copyright (c) 2010, Lucas C. Villa Real <lucasvr@gobolinux.org>
