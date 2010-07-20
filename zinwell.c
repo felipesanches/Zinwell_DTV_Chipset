@@ -1033,7 +1033,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	if (packet_size > max_packet_size)
 		packet_size = max_packet_size;
 	libusb_set_iso_packet_lengths(transfer, packet_size);
-	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 0);
+	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 10000);
 
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
@@ -1212,7 +1212,7 @@ main(int argc, char **argv)
 
 	if (user_options->writeto) {
 		int sequence = 0;
-		int num_packets = 64;
+		int num_packets = 64;  /* Must be a multiple of 8, as bInterval==1 */
 		int packet_size = 940;
 		char *buf = malloc(num_packets * packet_size);
 		FILE *fp;
