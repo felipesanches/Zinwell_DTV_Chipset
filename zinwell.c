@@ -1025,6 +1025,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 		perror("libusb_alloc_transfer");
 		return -ENOMEM;
 	}
+	libusb_set_iso_packet_lengths(transfer, packet_length);
 
 	pthread_mutex_lock(&handle->lock);
 	handle->packet_arrived = false;
