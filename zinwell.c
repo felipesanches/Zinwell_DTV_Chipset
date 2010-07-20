@@ -68,6 +68,7 @@
  */
 
 struct ib200_handle {
+	libusb_device *dev;
 	libusb_device_handle *devh;
 	pthread_mutex_t lock;
 	pthread_cond_t cond;
@@ -109,6 +110,7 @@ ib200_open_device(libusb_device **devlist, size_t n)
 				perror("malloc");
 				return NULL;
 			}
+			handle->dev = dev;
 			handle->devh = devh;
 			handle->packet_arrived = false;
 			handle->device_closed = false;
@@ -836,13 +838,9 @@ usb_out(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
                   0x##v7, 0x##v8, 0x##v9, 0x##v10, 0x##v11, 0x##v12);
 
 int
-tune_to_record(struct ib200_handle *handle){
-	int ret;
+tune_to_record(struct ib200_handle *handle)
+{
 	libusb_device_handle *devh = handle->devh;
-
-	ret = ib200_init(handle);
-	if (ret < 0)
-		return ret;
 
 	USB_OUT( 0b, 00, 20, 82, 01, 30, 80, 89, 01, 10, 6b, 89, 1e)
 	USB_IN ( 0b, 00, 20, 82, 01, 30, 80, 00, 01, 10, 6b, 89, 1e)
@@ -998,7 +996,7 @@ iso_callback(struct libusb_transfer *transfer)
     int i, buf_index=0;
 	struct ib200_handle *handle = (struct ib200_handle *) transfer->user_data;
 
-	debug_printf("iso_callback called");
+	debug_printf("iso_callback called. transfer_status=%#x", transfer->status);
     for (i=0; i<transfer->num_iso_packets; ++i) {
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
 		unsigned char *pbuf = transfer->buffer + buf_index;
@@ -1016,35 +1014,42 @@ iso_callback(struct libusb_transfer *transfer)
 }
 
 ssize_t
-ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t packet_length)
+ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t packet_size, bool wait)
 {
-	libusb_device_handle *devh = handle->devh;
 	struct libusb_transfer *transfer;
-	int ret;
+	int ret, max_packet_size;
 
 	transfer = libusb_alloc_transfer(num_packets);
 	if (! transfer) {
 		perror("libusb_alloc_transfer");
 		return -ENOMEM;
 	}
-	libusb_set_iso_packet_lengths(transfer, packet_length);
 
 	pthread_mutex_lock(&handle->lock);
 	handle->packet_arrived = false;
 	pthread_mutex_unlock(&handle->lock);
 
-	libusb_fill_iso_transfer(transfer, devh, IB200_CONFIG_ENDPOINT, buf, packet_length, num_packets, iso_callback, NULL, 0);
+	max_packet_size = libusb_get_max_iso_packet_size(handle->dev, IB200_CONFIG_ENDPOINT);
+	if (packet_size > max_packet_size)
+		packet_size = max_packet_size;
+	libusb_set_iso_packet_lengths(transfer, packet_size);
+	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 0);
+
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
 		debug_printf("Error submitting transfer");
 		return ret;
 	}
 
-	debug_printf("aguardando reply");
-	pthread_mutex_lock(&handle->lock);
-	while (! handle->packet_arrived)
-		pthread_cond_wait(&handle->cond, &handle->lock);
-	pthread_mutex_unlock(&handle->lock);
+	if (wait) {
+		debug_printf("aguardando reply");
+		pthread_mutex_lock(&handle->lock);
+		while (! handle->packet_arrived)
+			pthread_cond_wait(&handle->cond, &handle->lock);
+		pthread_mutex_unlock(&handle->lock);
+
+		/* TODO: ensure that 'buf' got filled up properly & return the number of bytes read */
+	}
 
 	return 0;
 }
@@ -1193,14 +1198,12 @@ main(int argc, char **argv)
 				test_misterious_registers_2(handle->devh);
 				break;
 			case 3:
-				printf("replaying logs to tune to Record:\n\n");
+				printf("Replaying logs to tune to Record:\n\n");
+				if (!user_options->writeto)
+					printf("You should try it with -wfilename!\n");
 				ret = tune_to_record(handle);
-				if (ret<0)
+				if (ret < 0)
 					goto out_close;
-
-				if (!user_options->writeto) {
-					printf("you should try it with -wfilename!\n");
-				}
 				break;
 			default:
 				printf("run test: uh!?\n");
@@ -1208,9 +1211,10 @@ main(int argc, char **argv)
 	}
 
 	if (user_options->writeto) {
+		int sequence = 0;
 		int num_packets = 64;
-		int packet_length = 940;
-		char *buf = malloc(num_packets * packet_length);
+		int packet_size = 940;
+		char *buf = malloc(num_packets * packet_size);
 		FILE *fp;
 		
 		if (! buf) {
@@ -1224,11 +1228,15 @@ main(int argc, char **argv)
 			goto out_close;
 		}
 		while (true) {
-			ret = ib200_read(handle, buf, num_packets, packet_length);
+			bool wait = ++sequence == 8 ? true : false;
+			ret = ib200_read(handle, buf, num_packets, packet_size, wait);
 			printf("read %d bytes from the tuner\n", ret);
-			if (ret <= 0)
+			if (ret < 0)
 				break;
-			fwrite(buf, ret, sizeof(char), fp);
+			if (wait)
+				sequence = 0;
+			if (ret)
+				fwrite(buf, ret, sizeof(char), fp);
 		}
 		fclose(fp);
 		free(buf);
