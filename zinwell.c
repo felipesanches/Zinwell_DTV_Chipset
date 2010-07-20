@@ -1020,7 +1020,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	struct libusb_transfer *transfer;
 	int ret;
 
-	transfer = libusb_alloc_transfer(packet_length);
+	transfer = libusb_alloc_transfer(num_packets);
 	if (! transfer) {
 		perror("libusb_alloc_transfer");
 		return -ENOMEM;
