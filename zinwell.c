@@ -1014,16 +1014,13 @@ iso_callback(struct libusb_transfer *transfer)
 }
 
 ssize_t
-ib200_read(struct ib200_handle *handle, void *buf, size_t count)
+ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t packet_length)
 {
 	libusb_device_handle *devh = handle->devh;
 	struct libusb_transfer *transfer;
 	int ret;
 
-	if ((count % 188) != 0)
-		count = count - (count % 188);
-
-	transfer = libusb_alloc_transfer(count / 188);
+	transfer = libusb_alloc_transfer(packet_length);
 	if (! transfer) {
 		perror("libusb_alloc_transfer");
 		return -ENOMEM;
@@ -1033,7 +1030,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t count)
 	handle->packet_arrived = false;
 	pthread_mutex_unlock(&handle->lock);
 
-	libusb_fill_iso_transfer(transfer, devh, IB200_CONFIG_ENDPOINT, buf, count, count / 188, iso_callback, NULL, 0);
+	libusb_fill_iso_transfer(transfer, devh, IB200_CONFIG_ENDPOINT, buf, packet_length, num_packets, iso_callback, NULL, 0);
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
 		debug_printf("Error submitting transfer");
@@ -1208,20 +1205,30 @@ main(int argc, char **argv)
 	}
 
 	if (user_options->writeto) {
-		char buf[188 * 10];
-		FILE *fp = fopen(user_options->writeto, "w+");
+		int num_packets = 64;
+		int packet_length = 940;
+		char *buf = malloc(num_packets * packet_length);
+		FILE *fp;
+		
+		if (! buf) {
+			perror("malloc");
+			goto out_free;
+		}
+
+		fp = fopen(user_options->writeto, "w+");
 		if (! fp) {
 			perror(user_options->writeto);
 			goto out_close;
 		}
 		while (true) {
-			ret = ib200_read(handle, buf, sizeof(buf));
+			ret = ib200_read(handle, buf, num_packets, packet_length);
 			printf("read %d bytes from the tuner\n", ret);
 			if (ret <= 0)
 				break;
 			fwrite(buf, ret, sizeof(char), fp);
 		}
 		fclose(fp);
+		free(buf);
 	}
 
 out_close:
