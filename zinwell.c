@@ -441,9 +441,11 @@ int
 ib200_init_configuration_descriptor(libusb_device_handle *devh)
 {
 	int ret;
-	unsigned char buf[65535], data[8];
+	unsigned char buf[65535];
+	unsigned char data[8];
 	uint8_t request_type, request;
-	uint16_t value, index, addr = 0x0000;
+	uint16_t value, index;
+	uint16_t addr = 0x0000;
 
 	/* Get status from the configuration descriptor */
 	/*                                          ------------- request_type
@@ -505,6 +507,40 @@ ib200_init_configuration_descriptor(libusb_device_handle *devh)
 	ret = ib200_shadow_write(devh, 0x583952ba, 0x0d);
 	if (ret < 0)
 		return ret;
+
+	return 0;
+}
+
+
+int
+ib200_blink_LED(struct ib200_handle *handle)
+{
+	int ret;
+	unsigned char data[8];
+	uint16_t addr = 0x0000;
+	libusb_device_handle *devh = handle->devh;
+
+	memcpy(data, "\x00\x34\x20", 3);
+	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	if (ret < 0)
+		return ret;
+
+	while (42){
+		memcpy(data, "\x00\x35\x20", 3);
+		ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+		if (ret < 0)
+			return ret;
+	
+		usleep(100000);
+
+		memcpy(data, "\x00\x35\x00", 3);
+		ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+		if (ret < 0)
+			return ret;
+
+		usleep(100000);
+
+	}
 
 	return 0;
 }
@@ -747,14 +783,14 @@ ib200_init(struct ib200_handle *handle)
 		return 1;
 
 	/* Initialize the MAX2163 registers */
-	ret = ib200_max2163_init(devh);
-	if (ret < 0)
-		return 1;
+//	ret = ib200_max2163_init(devh);
+//	if (ret < 0)
+//		return 1;
 
 	/* Upload firmware */
-	ret = ib200_upload_firmware(devh);
-	if (ret < 0)
-		return 1;
+//	ret = ib200_upload_firmware(devh);
+//	if (ret < 0)
+//		return 1;
 
 	/* 
 	 * Specify which bAlternateSetting to use:
@@ -947,7 +983,6 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	else
 		rflt_reg = _RF_FILTER_UHF_RANGE_710_806MHZ;
 
-
 	/* Initialize the RF Filter Register at 0x03 */
 	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
 			 rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e);
@@ -1045,7 +1080,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	if (packet_size > max_packet_size)
 		packet_size = max_packet_size;
 	libusb_set_iso_packet_lengths(transfer, packet_size);
-	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 10000);
+	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size * num_packets, num_packets, iso_callback, NULL, 10000);
 
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
@@ -1069,6 +1104,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 
 struct user_options {
 	int frequency;
+	bool blink;
 	bool initialize;
 	bool check_signal;
 	char *writeto;
@@ -1080,6 +1116,7 @@ show_usage(char *appname)
 {
 	printf("Usage: %s <options>\n\n"
 		   "Available options are:\n"
+		   "  -b, --blink               Blink LED!\n"
 		   "  -i, --init                Initialize tuner\n"
 		   "  -f, --frequency <freq>    Tune to frequency <freq>\n"
 		   "  -s, --check-signal        Check signal\n"
@@ -1094,8 +1131,9 @@ struct user_options *
 parse_args(int argc, char **argv)
 {
 	struct user_options *opts, zeroed_opts;
-	const char *short_options = "if:sw:t:h";
+	const char *short_options = "bif:sw:t:h";
 	struct option long_options[] = {
+		{ "blink", 0, 0, 0 },
 		{ "init", 0, 0, 0 },
 		{ "frequency", 1, 0, 'f' },
 		{ "check-signal", 0, 0, 0 },
@@ -1118,6 +1156,9 @@ parse_args(int argc, char **argv)
 			break;
 
 		switch (c) {
+			case 'b':
+				opts->blink = true;
+				break;
 			case 'i':
 				opts->initialize = true;
 				break;
@@ -1174,13 +1215,19 @@ main(int argc, char **argv)
 
 	n = libusb_get_device_list(ctx, &dev_list);
 	if (n < 0) {
-		debug_printf("libusb_get_device_list: failed with error %d", n);
+		debug_printf("libusb_get_device_list: failed with error %d", (int) n);
 		goto out_exit;
 	}
 
 	handle = ib200_open_device(dev_list, n);
 	if (! handle)
 		goto out_free;
+
+	if (user_options->blink) {
+		ret = ib200_blink_LED(handle);
+		if (ret < 0)
+			goto out_close;
+	}
 
 	if (user_options->initialize) {
 		ret = ib200_init(handle);
@@ -1249,6 +1296,7 @@ main(int argc, char **argv)
 				sequence = 0;
 			if (ret)
 				fwrite(buf, ret, sizeof(char), fp);
+			usleep(100000);
 		}
 		fclose(fp);
 		free(buf);
