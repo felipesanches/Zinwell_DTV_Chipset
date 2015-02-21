@@ -513,33 +513,37 @@ ib200_init_configuration_descriptor(libusb_device_handle *devh)
 
 
 int
+ib200_setup_LED(libusb_device_handle *devh)
+{
+	unsigned char data[] = {0x00, 0x34, 0x20};
+	return ib200_endpoint_write(devh, 0x0000, 0x00, 0x00, data);
+}
+
+int
+ib200_set_LED(libusb_device_handle *devh, bool state)
+{
+	unsigned char data[] = {0x00, 0x35, state ? 0x20 : 0x00};
+	return ib200_endpoint_write(devh, 0x0000, 0x00, 0x00, data);
+}
+
+int
 ib200_blink_LED(struct ib200_handle *handle)
 {
 	int ret;
-	unsigned char data[8];
-	uint16_t addr = 0x0000;
+	bool state = false;
 	libusb_device_handle *devh = handle->devh;
 
-	memcpy(data, "\x00\x34\x20", 3);
-	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	ret = ib200_setup_LED(devh);
 	if (ret < 0)
 		return ret;
 
-	while (42){
-		memcpy(data, "\x00\x35\x20", 3);
-		ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
+	while (true){
+		ret = ib200_set_LED(devh, state);
 		if (ret < 0)
 			return ret;
 	
 		usleep(100000);
-
-		memcpy(data, "\x00\x35\x00", 3);
-		ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
-		if (ret < 0)
-			return ret;
-
-		usleep(100000);
-
+		state = !state;
 	}
 
 	return 0;
