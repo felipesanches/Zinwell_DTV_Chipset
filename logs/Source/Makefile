@@ -8,8 +8,8 @@ all: $(TARGETS)
 clean:
 	rm -f $(TARGETS) *.o *~
 
-zinwell: zinwell.o
+juca-isoctransfers_minimalcode: juca-isoctransfers_minimalcode.o
 	$(CC) $< $(LDFLAGS) -o $@
 
-zinwell.o: zinwell.c
+juca-isoctransfers_minimalcode.o: juca-isoctransfers_minimalcode.c
 	$(CC) $< $(CFLAGS) -c
