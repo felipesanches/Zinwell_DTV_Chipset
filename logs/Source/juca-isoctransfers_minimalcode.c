@@ -1,14 +1,16 @@
 /* This file is generated with usbsnoop2libusb_1.0.pl from a usbsnoop log file. */
 #include <stdio.h>
+#include <ctype.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libusb-1.0/libusb.h>
+#include <libusb.h>
 
-void print_bytes(char *bytes, int len) {
+void print_bytes(unsigned char *bytes, int len) {
 	int i;
 	if (len > 0) {
 	for (i=0; i<len; i++) {
-		printf("%02x ", (int)((unsigned char)bytes[i]));
+		printf("%02x ", (int)(bytes[i]));
 	}
 	printf("\"");
 		for (i=0; i<len; i++) {
@@ -20,12 +22,12 @@ void print_bytes(char *bytes, int len) {
 
 static void iso_callback(struct libusb_transfer *transfer){
 	int i;
-	int buf_index=0;
+//	int buf_index=0;
 	printf("iso_callback called :: num_iso_packets=%d, endpoint=%#x, actual_length(invalid)=%d, buffer=%p\n", 
 			transfer->num_iso_packets, transfer->endpoint, transfer->actual_length, transfer->buffer);
 	for (i = 0; i < transfer->num_iso_packets; i++) {
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
-		print_bytes((char*) desc, sizeof(struct libusb_iso_packet_descriptor));
+		print_bytes((unsigned char *) desc, sizeof(struct libusb_iso_packet_descriptor));
 		printf("\n");
 #if 0
 		unsigned char *pbuf = transfer->buffer + buf_index;
@@ -42,8 +44,9 @@ static void iso_callback(struct libusb_transfer *transfer){
 
 int main(int argc, char **argv) {
 	int ret, vendor, product;
-	char buf[65535];
-	char isobuf[65536];
+	libusb_context *ctx;
+	unsigned char buf[65535];
+	unsigned char isobuf[65536];
 	static struct libusb_device_handle *devh = NULL;
 	struct libusb_transfer* transfer;
 
@@ -65,11 +68,12 @@ int main(int argc, char **argv) {
 	}
 
 
-	ret = libusb_init(NULL);
+	ret = libusb_init(&ctx);
 	if (ret < 0)
 		return ret;
 
-	libusb_set_debug(NULL, 3);
+	libusb_set_debug(ctx, 3);
+
 	devh = libusb_open_device_with_vid_pid(NULL, vendor, product);
 
 	ret = libusb_get_descriptor(devh, LIBUSB_DT_DEVICE, 0x0000000, buf, 0x0000012);
