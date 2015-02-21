@@ -25,9 +25,9 @@ static void iso_callback(struct libusb_transfer *transfer){
 			transfer->num_iso_packets, transfer->endpoint, transfer->actual_length, transfer->buffer);
 	for (i = 0; i < transfer->num_iso_packets; i++) {
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
-	//	print_bytes(desc, sizeof(struct libusb_iso_packet_descriptor));
-	//	printf("\n");
-#if 1
+		print_bytes(desc, sizeof(struct libusb_iso_packet_descriptor));
+		printf("\n");
+#if 0
 		unsigned char *pbuf = transfer->buffer + buf_index;
 		buf_index+=desc->length;
 		printf("    desc->length=%d, desc->actual_length=%d, desc->status=%#x\n", desc->length, desc->actual_length, desc->status);

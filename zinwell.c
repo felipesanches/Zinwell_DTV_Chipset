@@ -1080,7 +1080,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	if (packet_size > max_packet_size)
 		packet_size = max_packet_size;
 	libusb_set_iso_packet_lengths(transfer, packet_size);
-	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size * num_packets, num_packets, iso_callback, NULL, 10000);
+	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 10000);
 
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
@@ -1296,7 +1296,6 @@ main(int argc, char **argv)
 				sequence = 0;
 			if (ret)
 				fwrite(buf, ret, sizeof(char), fp);
-			usleep(100000);
 		}
 		fclose(fp);
 		free(buf);
