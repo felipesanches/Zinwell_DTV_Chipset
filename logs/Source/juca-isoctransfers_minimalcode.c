@@ -6,6 +6,9 @@
 #include <string.h>
 #include <libusb.h>
 
+#define IB200_VENDOR 0x5a57
+#define IB200_PRODUCT 0x4210
+
 void print_bytes(unsigned char *bytes, int len) {
 	int i;
 	if (len > 0) {
@@ -49,24 +52,38 @@ int main(int argc, char **argv) {
 	unsigned char isobuf[65536];
 	static struct libusb_device_handle *devh = NULL;
 	struct libusb_transfer* transfer;
-
-	if (argc!=3) {
-		printf("usage: %s vendorID productID\n", argv[0]);
-		exit(1);
-	}
-
 	char *endptr;
-	vendor = strtol(argv[1], &endptr, 16);
-	if (*endptr != '\0') {
-		printf("invalid vendor id\n");
-		exit(1);
-	}
-	product = strtol(argv[2], &endptr, 16);
-	if (*endptr != '\0') {
-		printf("invalid product id\n");
-		exit(1);
-	}
 
+	switch (argc){
+		case 1:
+			vendor = IB200_VENDOR;
+			product = IB200_PRODUCT;
+
+			printf("Assuming default vendorID = 0x%04X productID = 0x%04X\n", vendor, product);
+			break;
+		case 3:
+			vendor = strtol(argv[1], &endptr, 16);
+			if (*endptr != '\0') {
+				printf("invalid vendor id\n");
+				exit(1);
+			}
+
+			product = strtol(argv[2], &endptr, 16);
+			if (*endptr != '\0') {
+				printf("invalid product id\n");
+				exit(1);
+			}
+
+			printf("Using the following command-line specified values:\n");
+			printf("\tvendorID = 0x%04X\n", vendor);
+			printf("\tproductID = 0x%04X\n\n", product);
+			break;
+		default:
+			printf("usage: %s [vendorID productID]\n\n", argv[0]);
+			printf("\tDefault vendor:product ID = %04X:%04X\n\n", IB200_VENDOR, IB200_PRODUCT);
+			exit(1);
+			break;
+	}
 
 	ret = libusb_init(&ctx);
 	if (ret < 0)
