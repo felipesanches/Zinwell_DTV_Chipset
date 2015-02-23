@@ -32,7 +32,6 @@
 #include <string.h>
 #include <getopt.h>
 #include <errno.h>
-#include <pthread.h>
 #include <libusb.h>
 
 #include "max2163.h"
@@ -70,12 +69,10 @@
 struct ib200_handle {
 	libusb_device *dev;
 	libusb_device_handle *devh;
-	pthread_mutex_t lock;
-	pthread_cond_t cond;
-	bool packet_arrived;
 	bool device_closed;
 	void *read_buffer;
 	size_t read_count;
+	int pending_requests;
 };
 
 struct ib200_handle *
@@ -112,10 +109,6 @@ ib200_open_device(libusb_device **devlist, size_t n)
 			}
 			handle->dev = dev;
 			handle->devh = devh;
-			handle->packet_arrived = false;
-			handle->device_closed = false;
-			pthread_mutex_init(&handle->lock, NULL);
-			pthread_cond_init(&handle->cond, NULL);
 			return handle;
 		}
 	}
@@ -129,14 +122,7 @@ ib200_close_device(struct ib200_handle *handle)
 {
 	debug_printf("<--");
 	if (handle) {
-		pthread_mutex_lock(&handle->lock);
-		handle->device_closed = true;
-		pthread_cond_signal(&handle->cond);
-		pthread_mutex_unlock(&handle->lock);
-
 		libusb_close(handle->devh);
-		pthread_mutex_destroy(&handle->lock);
-		pthread_cond_destroy(&handle->cond);
 		free(handle);
 	}
 }
@@ -1044,28 +1030,32 @@ ib200_has_signal(struct ib200_handle *handle)
 static void 
 iso_callback(struct libusb_transfer *transfer)
 {
-    int i, buf_index=0;
+	int i, buf_index=0;
 	struct ib200_handle *handle = (struct ib200_handle *) transfer->user_data;
+	handle->pending_requests--;
 
-	debug_printf("iso_callback called. transfer_status=%#x", transfer->status);
-    for (i=0; i<transfer->num_iso_packets; ++i) {
+	debug_printf("iso_callback called. transfer_status=%d\n", transfer->status);
+
+	for (i=0; i<transfer->num_iso_packets; ++i) {
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
 		unsigned char *pbuf = transfer->buffer + buf_index;
-		buf_index+=desc->length;
+		buf_index += desc->length;
 		if (desc->actual_length != 0) {
-			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
-			hexdump(pbuf, desc->actual_length);
+			if (i==0) {
+				printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
+				hexdump(pbuf, desc->actual_length);
+			}
 		}
-		pthread_mutex_lock(&handle->lock);
-		handle->packet_arrived = true;
-		pthread_cond_signal(&handle->cond);
-		pthread_mutex_unlock(&handle->lock);
 	}
+
+	printf("read_count: %d\n", buf_index);
+
+	/*TODO: actually save the received packet buffer to the output file*/
 	libusb_free_transfer(transfer);
 }
 
 ssize_t
-ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t packet_size, bool wait)
+ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t packet_size)
 {
 	struct libusb_transfer *transfer;
 	int ret, max_packet_size;
@@ -1076,31 +1066,25 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 		return -ENOMEM;
 	}
 
-	pthread_mutex_lock(&handle->lock);
-	handle->packet_arrived = false;
-	pthread_mutex_unlock(&handle->lock);
-
 	max_packet_size = libusb_get_max_iso_packet_size(handle->dev, IB200_CONFIG_ENDPOINT);
-	if (packet_size > max_packet_size)
+	if (packet_size > max_packet_size){
 		packet_size = max_packet_size;
-	libusb_set_iso_packet_lengths(transfer, packet_size);
-	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, NULL, 10000);
+		printf("Limiting packet size to max length=%d\n", (int) packet_size);
+	}
 
+	libusb_fill_iso_transfer(transfer, handle->devh, IB200_CONFIG_ENDPOINT, buf, packet_size, num_packets, iso_callback, handle, 10000);
+	libusb_set_iso_packet_lengths(transfer, packet_size);
+	
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
 		debug_printf("Error submitting transfer");
 		return ret;
 	}
 
-	if (wait) {
-		debug_printf("aguardando reply");
-		pthread_mutex_lock(&handle->lock);
-		while (! handle->packet_arrived)
-			pthread_cond_wait(&handle->cond, &handle->lock);
-		pthread_mutex_unlock(&handle->lock);
-
-		/* TODO: ensure that 'buf' got filled up properly & return the number of bytes read */
-	}
+	//I don't know why these 2 URBs trigger responses from ISOC requests:
+	usb_out(handle->devh, 0x0b, 0x00, 0x00, 0x82, 0x01, 0x16, 0x00, 0x00, 0xa8, 0x6d, 0x0d, 0x89, 0x43);
+	usleep(16000); //do we need to delay 16ms here?
+	usb_out(handle->devh, 0x0b, 0x00, 0x20, 0x82, 0x01, 0x15, 0x80, 0x00, 0x1c, 0x0b, 0x00, 0x00, 0x74);
 
 	return 0;
 }
@@ -1274,7 +1258,6 @@ main(int argc, char **argv)
 	}
 
 	if (user_options->writeto) {
-		int sequence = 0;
 		int num_packets = 64;  /* Must be a multiple of 8, as bInterval==1 */
 		int packet_size = 940;
 		char *buf = malloc(num_packets * packet_size);
@@ -1290,16 +1273,21 @@ main(int argc, char **argv)
 			perror(user_options->writeto);
 			goto out_close;
 		}
+
+		handle->pending_requests = 0;
 		while (true) {
-			bool wait = ++sequence == 8 ? true : false;
-			ret = ib200_read(handle, buf, num_packets, packet_size, wait);
-			printf("read %d bytes from the tuner\n", ret);
+			if (handle->pending_requests<8){
+				handle->pending_requests++;
+
+				ret = ib200_read(handle, buf, num_packets, packet_size);
+				printf("Sent a request for an isochronous transfer [pending=%d]\n", handle->pending_requests);
+
 			if (ret < 0)
 				break;
-			if (wait)
-				sequence = 0;
-			if (ret)
-				fwrite(buf, ret, sizeof(char), fp);
+
+			//if (ret)
+			//	fwrite(buf, ret, sizeof(char), fp);
+			}
 		}
 		fclose(fp);
 		free(buf);
