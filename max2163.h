@@ -88,7 +88,7 @@
 #define _VCO_REG_VCO_1                       ((0x01 << 5) & 0x20)
 #define _VCO_REG_VCO_2                       ((0x02 << 5) & 0x20)
 #define _VCO_REG_NOT_USED                    ((0x03 << 5) & 0x20)
-#define _VCO_FACTORY_USE_ONLY                ((0x00 << 7) & 0x80)
+#define _VCO_FACTORY_USE_ONLY                ((0x01 << 7) & 0x80)
 
 #define MAX2163_I2C_RF_FILTER_REG              0x03
 #define _RF_FILTER_REG_MASK                    0xff
@@ -115,7 +115,7 @@
 
 #define MAX2163_I2C_MODE_REG                   0x04
 #define _MODE_REG_MASK                         0xe0
-#define _MODE_REG_FACTORY_USE                 (0x00 & 0x1f)
+#define _MODE_REG_FACTORY_USE                 (0x1f)
 #define _MODE_REG_LOW_SIDE_INJECTION         ((0x01 << 5) & 0x20)
 #define _MODE_REG_HIGH_SIDE_INJECTION        ((0x00 << 5) & 0x20)
 #define _MODE_REG_ENABLE_RF_FILTER           ((0x00 << 6) & 0x40)
@@ -129,11 +129,10 @@
  * All bits are used to set the PLL reference divider (R) number.
  * default R divide value is 126 decimal. R can range from 16 to 511 decimal.
  */
-#define _RDIVIDER_MSB_REG_PLL_DIVIDER(num)   ((num) & 0xff)
 
 #define MAX2163_I2C_RDIVIDER_LSB_REG           0x06
 #define _RDIVIDER_LSB_REG_MASK                 0xdd
-#define _RDIVIDER_LSB_REG_RO                  (0x00 & 0x01)
+#define _RDIVIDER_LSB_REG_RO_MASK             (0x01)
 #define _RDIVIDER_LSB_REG_FACTORY_USE_1      ((0x01 << 1) & 0x02)
 #define _RDIVIDER_LSB_REG_RFDA_37DB          ((0x00 << 2) & 0x0c)
 #define _RDIVIDER_LSB_REG_RFDA_34DB          ((0x01 << 2) & 0x0c)
@@ -141,11 +140,14 @@
 #define _RDIVIDER_LSB_REG_RFDA_28DB          ((0x03 << 2) & 0x0c)
 #define _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR ((0x00 << 4) & 0x10)
 #define _RDIVIDER_LSB_REG_DISABLE_RF_DETECTOR ((0x01<< 4) & 0x10)
-#define _RDIVIDER_LSB_REG_FACTORY_USE_2      ((0x00 << 5) & 0x20)
+#define _RDIVIDER_LSB_REG_FACTORY_USE_2      ((0x01 << 5) & 0x20)
 #define _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA  ((0x00 << 6) & 0xc0)
 #define _RDIVIDER_LSB_REG_CHARGE_PUMP_2MA    ((0x01 << 6) & 0xc0)
 #define _RDIVIDER_LSB_REG_CHARGE_PUMP_2_5MA  ((0x02 << 6) & 0xc0)
 #define _RDIVIDER_LSB_REG_CHARGE_PUMP_3MA    ((0x03 << 6) & 0xc0)
+
+#define PLL_MOST_RDIVIDER(num)   ((num >> 1) & 0xff)
+#define PLL_LEAST_RDIVIDER(num)   (num & _RDIVIDER_LSB_REG_RO_MASK)
 
 #define MAX2163_I2C_NDIVIDER_MSB_REG           0x07
 #define _NDIVIDER_MSB_REG_MASK                 0xff
@@ -154,7 +156,6 @@
  * divide number (N). Default integer divide value is N = 1952 decimal. N 
  * can range from 1314 to 2687.
  */
-#define _NDIVIDER_MSB_REG_PLL_MOST_DIV(num)   ((num) & 0xff)
 
 #define MAX2163_I2C_NDIVIDER_LSB_REG           0x08
 #define _NDIVIDER_LSB_REG_MASK                 0xf7
@@ -164,8 +165,11 @@
 #define _NDIVIDER_LSB_REG_RFVGA_HIGH         ((0x01 << 1) & 0x02)
 #define _NDIVIDER_LSB_REG_MIX_NORMAL         ((0x00 << 2) & 0x04)
 #define _NDIVIDER_LSB_REG_MIX_HIGH           ((0x01 << 2) & 0x04)
-#define _NDIVIDER_LSB_REG_FACTORY_USE        ((0x00 << 3) & 0x08)
-#define _NDIVIDER_LSB_REG_PLL_LEAST_DIV(num) ((num) & 0xf0)
+#define _NDIVIDER_LSB_REG_FACTORY_USE        ((0x01 << 3) & 0x08)
+
+
+#define PLL_MOST_NDIVIDER(num)   ((num >> 4) & 0xff)
+#define PLL_LEAST_NDIVIDER(num)  ((num << 4) & 0xf0)
 
 /* Read-only register */
 #define MAX2163_I2C_STATUS_REG                 0x09

@@ -40,7 +40,8 @@
 #define ZINWELL_VENDOR_ID      0x5a57
 #define IB200_PRODUCT_ID       0x4210   /* ISDB-T DTV UB-10 */
 #define IB200_CONFIG_ENDPOINT  0x82
-#define IB200_DEFAULT_RDIVIDER 0x38     /* default PLL divider */
+#define DEFAULT_RDIVIDER 0x7E     /* default PLL reference divider */
+#define DEFAULT_NDIVIDER 0x7A0    /* default PLL integer divider */
 
 /**
  * The following addresses are used when communicating with the USB device:
@@ -175,7 +176,7 @@ ib200_i2c_write(libusb_device_handle *devh,
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
 	unsigned char addr_low = addr & 0xff;
-	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, stub, reg, stub, stub, stub, last };
+	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, stub, reg-3, stub, stub, stub, last };
 
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
@@ -612,7 +613,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the R-Divider MSB Register */
 	random_val = 0x5d;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_MSB_REG, 
-			_RDIVIDER_MSB_REG_PLL_DIVIDER(IB200_DEFAULT_RDIVIDER),
+			PLL_MOST_RDIVIDER(DEFAULT_RDIVIDER),
 			random_val);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_MSB_REG << 24, random_val);
@@ -624,7 +625,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the R-Divider LSB/CP Register */
 	random_val = 0x99;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_LSB_REG, 
-			/* 0x00 */ _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR | 
+			PLL_LEAST_RDIVIDER(DEFAULT_RDIVIDER) | _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR | 
 			_RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA,
 			random_val);
 	if (ret == 0)
@@ -637,7 +638,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the N-Divider MSB Register */
 	random_val = 0xd5;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
-			/* 0x67 */ _NDIVIDER_MSB_REG_PLL_MOST_DIV(0x67),
+			/* 0x67 */ PLL_MOST_NDIVIDER(DEFAULT_NDIVIDER),
 			random_val);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_MSB_REG << 24, random_val);
@@ -650,7 +651,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	random_val = 0x11;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
 			/* 0xa0 */ _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-			_NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa0),
+			_NDIVIDER_LSB_REG_MIX_NORMAL | PLL_LEAST_NDIVIDER(DEFAULT_NDIVIDER),
 			random_val);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG << 24, random_val);
@@ -863,9 +864,20 @@ usb_out(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
 	usb_in(devh, 0x##v0, 0x##v1, 0x##v2, 0x##v3, 0x##v4, 0x##v5, 0x##v6,\
                   0x##v7, 0x##v8, 0x##v9, 0x##v10, 0x##v11, 0x##v12);
 
+#define MAX2163_WRITE_I2C(reg, val, magic)\
+	ret = ib200_i2c_write(devh, (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR, reg, val, magic);\
+	if (ret < 0) {\
+		debug_printf("Failed to write to MAX2163 i2c register\n");\
+		return ret;\
+	}
+
 int
 tune_to_record(struct ib200_handle *handle)
 {
+	int ret;
+	int tvrecord_reference_divider = 0x70;
+	int tvrecord_integer_divider = 0x70d;
+
 	libusb_device_handle *devh = handle->devh;
 
 	USB_OUT( 0b, 00, 20, 82, 01, 30, 80, 89, 01, 10, 6b, 89, 1e)
@@ -875,27 +887,52 @@ tune_to_record(struct ib200_handle *handle)
 	USB_OUT( 0b, 00, 00, 82, 01, 16, 00, 00, 20, 80, 0d, 88, 43)
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 0b, 00, 87, 8f, 00)
 
-//Record Porto Alegre: 515
-//	USB_OUT( 0b, c0, c0, 01, 01, 03, c1, 00, 00, 00, 00, 00, 20)
-	USB_OUT( 0b, c0, c0, 01, 01, 03, c2, 00, 00, 00, 00, 00, 20)
+////Record Porto Alegre: 515
+//	USB_OUT( 0b, c0, c0, 01, 01, 03, c2, 00, 00, 00, 00, 00, 20)
+	MAX2163_WRITE_I2C(MAX2163_I2C_RF_FILTER_REG,
+                          _RF_FILTER_UHF_RANGE_512_542MHZ | _RF_FILTER_AGC_MINUS_66DBM | _RF_FILTER_PWRDET_BUF_ON_GC1,
+			  /* magic number */ 0x20)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 00, 00, 00, 00, 20)
-	USB_OUT( 0b, c0, c0, 01, 01, 04, 00, 00, 01, 00, 00, 00, 5b)
+
+//	USB_OUT( 0b, c0, c0, 01, 01, 04, 00, 00, 01, 00, 00, 00, 5b)
+	MAX2163_WRITE_I2C(MAX2163_I2C_MODE_REG,
+                          _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | _MODE_REG_ENABLE_3RD_STAGE_RFVGA,
+			  /* magic number */ 0x5b)
+
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 01, 00, 00, 00, 5b)
-	USB_OUT( 0b, c0, c0, 01, 01, 05, 38, 00, 02, 00, 00, 00, 97)
+
+//	USB_OUT( 0b, c0, c0, 01, 01, 05, 38, 00, 02, 00, 00, 00, 97)
+	MAX2163_WRITE_I2C(MAX2163_I2C_RDIVIDER_MSB_REG,
+                          PLL_MOST_RDIVIDER(tvrecord_reference_divider),
+			  /* magic number */ 0x97)
+
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 02, 00, 00, 00, 97)
-	USB_OUT( 0b, c0, c0, 01, 01, 06, 00, 00, 03, 00, 00, 00, d3)
+
+//	USB_OUT( 0b, c0, c0, 01, 01, 06, 00, 00, 03, 00, 00, 00, d3)
+	MAX2163_WRITE_I2C(MAX2163_I2C_RDIVIDER_LSB_REG,
+                          _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR
+                          | _RDIVIDER_LSB_REG_RFDA_37DB | PLL_LEAST_RDIVIDER(tvrecord_reference_divider),
+			  /* magic number */ 0xd3)
+
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 03, 00, 00, 00, d3)
 
-//Record Porto Alegre: 515
-//	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
-	USB_OUT( 0b, c0, c0, 01, 01, 07, 70, 00, 04, 00, 00, 00, 0f)
+////Record Porto Alegre: 515
+////	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
+//	USB_OUT( 0b, c0, c0, 01, 01, 07, 70, 00, 04, 00, 00, 00, 0f)
+	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_MSB_REG,
+                          PLL_MOST_NDIVIDER(tvrecord_integer_divider),
+			  /* magic number */ 0x0f)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 04, 00, 00, 00, 0f)
 
-//Record Porto Alegre: 515
-//	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
-	USB_OUT( 0b, c0, c0, 01, 01, 08, d0, 00, 05, 00, 00, 00, 4a)
+////Record Porto Alegre: 515
+////	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
+//	USB_OUT( 0b, c0, c0, 01, 01, 08, d0, 00, 05, 00, 00, 00, 4a)
+	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_LSB_REG,
+                          PLL_LEAST_NDIVIDER(tvrecord_integer_divider) | _NDIVIDER_LSB_REG_MIX_NORMAL
+                          | _NDIVIDER_LSB_REG_RFVGA_NORMAL | _NDIVIDER_LSB_REG_STBY_NORMAL,
+			  /* magic number */ 0x4a)
 
 	USB_OUT( 0b, ee, c0, 01, 01, 18, 01, 8f, 03, 00, 00, 00, c0)
 	USB_OUT( 0b, ee, c0, 01, 01, 18, 00, 8f, 03, 00, 00, 00, c0)
@@ -934,7 +971,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 {
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 	libusb_device_handle *devh = handle->devh;
-	int i, ret, rflt_reg, n_divider;
+	int i, ret, freq_range, n_divider;
 	int valid_frequencies[] = {
 		473, 479, 485, 491, 497, 503, 509, 515, 521, 527, 
 		533, 539, 545, 551, 557, 563, 569, 575, 581, 587, 
@@ -957,25 +994,25 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 
 	if (frequency < 488)
-		rflt_reg = _RF_FILTER_UHF_RANGE_470_488MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_470_488MHZ;
 	else if (frequency < 512)
-		rflt_reg = _RF_FILTER_UHF_RANGE_488_512MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_488_512MHZ;
 	else if (frequency < 542)
-		rflt_reg = _RF_FILTER_UHF_RANGE_512_542MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_512_542MHZ;
 	else if (frequency < 572)
-		rflt_reg = _RF_FILTER_UHF_RANGE_542_572MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_542_572MHZ;
 	else if (frequency < 608)
-		rflt_reg = _RF_FILTER_UHF_RANGE_572_608MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_572_608MHZ;
 	else if (frequency < 656)
-		rflt_reg = _RF_FILTER_UHF_RANGE_608_656MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_608_656MHZ;
 	else if (frequency < 710)
-		rflt_reg = _RF_FILTER_UHF_RANGE_656_710MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_656_710MHZ;
 	else
-		rflt_reg = _RF_FILTER_UHF_RANGE_710_806MHZ;
+		freq_range = _RF_FILTER_UHF_RANGE_710_806MHZ;
 
 	/* Initialize the RF Filter Register at 0x03 */
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RF_FILTER_REG, 
-			 rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e);
+			 freq_range | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0x6e);
 	if (ret < 0) {
@@ -984,9 +1021,9 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 	
 	/* Initialize the N-Divider Registers */
-	n_divider = (frequency * IB200_DEFAULT_RDIVIDER) + 40;
+	n_divider = (frequency * DEFAULT_RDIVIDER) + 40;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
-			 _NDIVIDER_MSB_REG_PLL_MOST_DIV(n_divider >> 8), 0xd5);
+			 PLL_MOST_NDIVIDER(n_divider), 0xd5);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0xd5);
 	if (ret < 0) {
@@ -997,7 +1034,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	/* Initialize the N-Divider LSB/LIN Register */
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
 			 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-			 _NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(n_divider), 0x11);
+			 _NDIVIDER_LSB_REG_MIX_NORMAL | PLL_LEAST_NDIVIDER(n_divider), 0x11);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG << 24, 0x11);
 	if (ret < 0) {
@@ -1007,7 +1044,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 
 	return 0;
 }
-	
+
 bool
 ib200_has_signal(struct ib200_handle *handle)
 {
@@ -1019,6 +1056,8 @@ ib200_has_signal(struct ib200_handle *handle)
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_STATUS_REG, 0, 0);
 	debug_printf("ib200_i2c_write=%d", ret);
 
+/* QUESTION: i2c read function really does not specify from which I2C address
+             and from which register it will read?! */
 	ret = ib200_i2c_read(devh, buf, sizeof(buf));
 	debug_printf("ib200_i2c_read=%d", ret);
 	if (ret > 0)
