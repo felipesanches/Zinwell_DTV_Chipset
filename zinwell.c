@@ -128,21 +128,20 @@ ib200_close_device(struct ib200_handle *handle)
 }
 
 /**
- * Read from the I2C
+ * Read data from the I2C bus
  * @param devh LibUSB device handle
- * @param wValue wValue, as specified by the USB Specification 2.0
- * @param wIndex wIndex, as specified by the USB Specification 2.0
- * @param reg I2C register to read from
  * @param buf output buffer
  * @param size buffer size
  * @return the number of bytes read on success or a negative value on error.
  */
 static int
-ib200_i2c_read(libusb_device_handle *devh, uint16_t wValue, uint16_t wIndex, 
+ib200_i2c_read(libusb_device_handle *devh, 
 	unsigned char *buf, size_t size)
 {
 	int ret;
 	uint8_t bmRequestType, bRequest;
+	uint16_t wValue = 0x0b;
+	uint16_t wIndex = 0x00;
 
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
@@ -156,22 +155,23 @@ ib200_i2c_read(libusb_device_handle *devh, uint16_t wValue, uint16_t wIndex,
 }
 
 /**
- * Write to the I2C configuration registers
+ * Write data to a register in the I2C bus
  * @param devh LibUSB device handle
  * @param addr address to write to. The MSB is sent as 2nd argument of the command and the LSB as 3rd.
- * @param wValue wValue, as specified by the USB Specification 2.0
- * @param wIndex wIndex, as specified by the USB Specification 2.0
  * @param reg I2C register to write to
  * @param val value to write to the I2C register
  * @param last value to write in the last byte of the command
  * @return 0 on success or a negative value on error.
  */
 static int
-ib200_i2c_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue, uint16_t wIndex, unsigned char reg, 
-	unsigned char val, unsigned char last)
+ib200_i2c_write(libusb_device_handle *devh,
+	        uint16_t addr, unsigned char reg,
+                unsigned char val, unsigned char last)
 {
 	int ret;
 	uint8_t bmRequestType, bRequest;
+	uint16_t wValue = 0x0b;
+	uint16_t wIndex = 0x00;
 	unsigned char stub = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
 	unsigned char addr_low = addr & 0xff;
@@ -547,7 +547,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the IF Filter Register */
 	random_val = 0x33;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_IF_FILTER_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_IF_FILTER_REG, 
 			/* 0x6f */ _IF_FILTER_13MHZ_BANDWIDTH | _IF_FILTER_BIAS_CURRENT | 
 			_IF_FILTER_CENTER_FREQUENCY_1_00,
 			random_val);
@@ -561,7 +561,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the VAS Register */
 	random_val = 0x6e;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_VAS_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VAS_REG, 
 			/* 0xb7 */ _VAS_REG_AUTOSELECT_45056_WAIT_TIME | _VAS_REG_CPS_AUTOMATIC | 
 			_VAS_REG_START_AT_CURR_USED_REGS,
 			random_val);
@@ -574,7 +574,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the VCO Register */
 	random_val = 0xaa;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_VCO_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VCO_REG, 
 			/* 0x29 */ _VCO_REG_VCOB_LOW_POWER | _VCO_REG_SUB_BAND_3 | _VCO_REG_VCO_1,
 			random_val);
 	if (ret == 0)
@@ -586,7 +586,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the PDET/RF-FILT Register */
 	random_val = 0xe6;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RF_FILTER_REG, 
 			/* 0xc7 */ _RF_FILTER_UHF_RANGE_710_806MHZ | _RF_FILTER_PWRDET_BUF_ON_GC1,
 			random_val);
 	if (ret == 0)
@@ -598,7 +598,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the MODE Register */
 	random_val = 0x22;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_MODE_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_MODE_REG, 
 			/* 0x00 */ _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | 
 			_MODE_REG_ENABLE_3RD_STAGE_RFVGA,
 			random_val);
@@ -611,7 +611,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the R-Divider MSB Register */
 	random_val = 0x5d;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_MSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_MSB_REG, 
 			_RDIVIDER_MSB_REG_PLL_DIVIDER(IB200_DEFAULT_RDIVIDER),
 			random_val);
 	if (ret == 0)
@@ -623,7 +623,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	
 	/* Initialize the R-Divider LSB/CP Register */
 	random_val = 0x99;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RDIVIDER_LSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_LSB_REG, 
 			/* 0x00 */ _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR | 
 			_RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA,
 			random_val);
@@ -636,7 +636,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the N-Divider MSB Register */
 	random_val = 0xd5;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
 			/* 0x67 */ _NDIVIDER_MSB_REG_PLL_MOST_DIV(0x67),
 			random_val);
 	if (ret == 0)
@@ -648,7 +648,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	
 	/* Initialize the N-Divider LSB/LIN Register */
 	random_val = 0x11;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
 			/* 0xa0 */ _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
 			_NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(0xa0),
 			random_val);
@@ -974,7 +974,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 		rflt_reg = _RF_FILTER_UHF_RANGE_710_806MHZ;
 
 	/* Initialize the RF Filter Register at 0x03 */
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_RF_FILTER_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RF_FILTER_REG, 
 			 rflt_reg | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0x6e);
@@ -985,7 +985,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	
 	/* Initialize the N-Divider Registers */
 	n_divider = (frequency * IB200_DEFAULT_RDIVIDER) + 40;
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_MSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
 			 _NDIVIDER_MSB_REG_PLL_MOST_DIV(n_divider >> 8), 0xd5);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG << 24, 0xd5);
@@ -995,7 +995,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 	
 	/* Initialize the N-Divider LSB/LIN Register */
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_NDIVIDER_LSB_REG, 
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
 			 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
 			 _NDIVIDER_LSB_REG_MIX_NORMAL | _NDIVIDER_LSB_REG_PLL_LEAST_DIV(n_divider), 0x11);
 	if (ret == 0)
@@ -1016,10 +1016,10 @@ ib200_has_signal(struct ib200_handle *handle)
 	unsigned char buf[32];
 	int ret;
 
-	ret = ib200_i2c_write(devh, addr, 0x0b, 0x00, MAX2163_I2C_STATUS_REG, 0, 0);
+	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_STATUS_REG, 0, 0);
 	debug_printf("ib200_i2c_write=%d", ret);
 
-	ret = ib200_i2c_read(devh, 0x0b, 0x00, buf, sizeof(buf));
+	ret = ib200_i2c_read(devh, buf, sizeof(buf));
 	debug_printf("ib200_i2c_read=%d", ret);
 	if (ret > 0)
 		hexdump(buf, ret);
