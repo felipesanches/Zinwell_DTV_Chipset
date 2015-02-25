@@ -905,8 +905,8 @@ int
 tune_to_record(struct ib200_handle *handle)
 {
 	int ret;
-	int tvrecord_reference_divider = 0x70;
-	int tvrecord_integer_divider = 0x6F8;
+	int tvrecord_reference_divider = 0x70; //112
+	int tvrecord_integer_divider = 0x6F8; //1784
 
 	libusb_device_handle *devh = handle->devh;
 
@@ -1020,6 +1020,7 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 	libusb_device_handle *devh = handle->devh;
 	int i, ret, freq_range, n_divider;
+	float n_divider_float;
 	int valid_frequencies[] = {
 		473, 479, 485, 491, 497, 503, 509, 515, 521, 527, 
 		533, 539, 545, 551, 557, 563, 569, 575, 581, 587, 
@@ -1069,9 +1070,13 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 	
 	/* Initialize the N-Divider Registers */
-	n_divider = (frequency * DEFAULT_RDIVIDER) + 40;
+	n_divider_float = (64.0 + frequency * DEFAULT_RDIVIDER)/32;
+	n_divider = (int) n_divider_float;
+
+	printf("\nFreq: %d\nN-DIV: %f\nR-DIV: %d\n\n", frequency, n_divider_float, DEFAULT_RDIVIDER);
+
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
-			 PLL_MOST_NDIVIDER(n_divider), 0xd5, /* reg offset: */ 0x00);
+ 			 PLL_MOST_NDIVIDER(n_divider), 0xd5, /* reg offset: */ 0x00);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG, 0xd5);
 	if (ret < 0) {
@@ -1310,12 +1315,6 @@ main(int argc, char **argv)
 			goto out_close;
 	}
 
-	if (user_options->frequency) {
-		ret = ib200_set_frequency(handle, user_options->frequency);
-		if (ret < 0)
-			goto out_close;
-	}
-
 	if (user_options->check_signal) {
 		has_signal = ib200_has_signal(handle);
 		printf("ib200_has_signal: %d\n", has_signal);
@@ -1342,6 +1341,12 @@ main(int argc, char **argv)
 			default:
 				printf("run test: uh!?\n");
 		}
+	}
+
+	if (user_options->frequency) {
+		ret = ib200_set_frequency(handle, user_options->frequency);
+		if (ret < 0)
+			goto out_close;
 	}
 
 	if (user_options->writeto) {
