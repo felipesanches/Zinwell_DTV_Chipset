@@ -42,6 +42,8 @@
 #define IB200_CONFIG_ENDPOINT  0x82
 #define DEFAULT_RDIVIDER 0x70     /* default PLL reference divider */
 #define DEFAULT_NDIVIDER 0x67A    /* default PLL integer divider */
+#define VCO_CRYSTAL_FREQ 32 /* The oscillator crystal used for driving
+                               the PLL reference frequency operates at 32MHz */
 
 /**
  * The following addresses are used when communicating with the USB device:
@@ -1020,7 +1022,6 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 	libusb_device_handle *devh = handle->devh;
 	int i, ret, freq_range, n_divider;
-	float n_divider_float;
 	int valid_frequencies[] = {
 		473, 479, 485, 491, 497, 503, 509, 515, 521, 527, 
 		533, 539, 545, 551, 557, 563, 569, 575, 581, 587, 
@@ -1070,10 +1071,9 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 	
 	/* Initialize the N-Divider Registers */
-	n_divider_float = (64.0 + frequency * DEFAULT_RDIVIDER)/32;
-	n_divider = (int) n_divider_float;
+	n_divider = (64 + frequency * DEFAULT_RDIVIDER) / VCO_CRYSTAL_FREQ;
 
-	printf("\nFreq: %d\nN-DIV: %f\nR-DIV: %d\n\n", frequency, n_divider_float, DEFAULT_RDIVIDER);
+	printf("\nFreq: %d\nN-DIV: %d\nR-DIV: %d\n\n", frequency, n_divider, DEFAULT_RDIVIDER);
 
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
  			 PLL_MOST_NDIVIDER(n_divider), 0xd5, /* reg offset: */ 0x00);
