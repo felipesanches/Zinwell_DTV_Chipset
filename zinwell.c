@@ -40,8 +40,8 @@
 #define ZINWELL_VENDOR_ID      0x5a57
 #define IB200_PRODUCT_ID       0x4210   /* ISDB-T DTV UB-10 */
 #define IB200_CONFIG_ENDPOINT  0x82
-#define DEFAULT_RDIVIDER 0x7E     /* default PLL reference divider */
-#define DEFAULT_NDIVIDER 0x7A0    /* default PLL integer divider */
+#define DEFAULT_RDIVIDER 0x70     /* default PLL reference divider */
+#define DEFAULT_NDIVIDER 0x67A    /* default PLL integer divider */
 
 /**
  * The following addresses are used when communicating with the USB device:
@@ -151,6 +151,7 @@ ib200_i2c_read(libusb_device_handle *devh,
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return ret;
 	}
+	printf("USBIN <<< ????  ib200_i2c_read\n");
 	usleep(10000);
 	return 0;
 }
@@ -175,15 +176,15 @@ ib200_i2c_write(libusb_device_handle *devh,
 	uint16_t wIndex = 0x00;
 	unsigned char addr_high = (addr >> 8) & 0xff;
 	unsigned char addr_low = addr & 0xff;
-	reg -= reg_offset;
 	unsigned char cmd[13] = { wValue, addr_high, addr_low, 0x01, 0x01, reg, val, 0x00,
-                            reg & 0xff,
-                            (reg >> 8) & 0xff,
-                            (reg >> 16) & 0xff,
-                            (reg >> 24) & 0xff, last };
+                            (reg - reg_offset) & 0xff,
+                            ((reg - reg_offset) >> 8) & 0xff,
+                            ((reg - reg_offset) >> 16) & 0xff,
+                            ((reg - reg_offset) >> 24) & 0xff, last };
 
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
@@ -220,6 +221,7 @@ ib200_shadow_write(libusb_device_handle *devh, uint32_t reg, unsigned char last)
 	wValue = 0x0b;
 	wIndex = 0x00;
 	bRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 	ret = libusb_control_transfer(devh, bRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
@@ -242,6 +244,7 @@ endpoint_write(libusb_device_handle *devh, unsigned char endpoint, uint16_t addr
 	memcpy(&cmd[5], data, 8);
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 	ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
@@ -293,7 +296,7 @@ int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, uns
 		return ret;
 	}
 
-//	hexdump(buf, sizeof(buf));
+	hexdump(buf, sizeof(buf));
 	*return_value = buf[7];
 	usleep(1000);
 	return 0;
@@ -492,6 +495,9 @@ ib200_init_configuration_descriptor(libusb_device_handle *devh)
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
 		return 1;
 	}
+
+	printf("USBIN <<< ????  1st libusb_control_transfer call at ib200_init_configuration_descriptor\n");
+
 	/* TODO: interpret the 2 bytes returned (0x01 0x03) */
 	hexdump(buf, 0x2);
 
@@ -560,8 +566,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the VAS Register */
 	magic_number = 0x6e;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VAS_REG, 
-			/* 0xb7 */ _VAS_REG_AUTOSELECT_45056_WAIT_TIME | _VAS_REG_CPS_AUTOMATIC | 
-			_VAS_REG_START_AT_CURR_USED_REGS,
+			/* 0xb7 */ _VAS_REG_START_AT_CURR_LOADED_REGS | _VAS_REG_ENABLE_VCO_AUTOSELECT | _VAS_REG_CPS_AUTOMATIC | _VAS_REG_DISABLE_ADC_LATCH | _VAS_REG_ENABLE_ADC_READ |_VAS_REG_AUTOSELECT_45056_WAIT_TIME,
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_VAS_REG, magic_number);
@@ -573,7 +578,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the VCO Register */
 	magic_number = 0xaa;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VCO_REG, 
-			/* 0x29 */ _VCO_REG_VCOB_LOW_POWER | _VCO_REG_SUB_BAND_3 | _VCO_REG_VCO_1,
+			/* 0x29 */ _VCO_REG_VCO_1 | _VCO_REG_SUB_BAND_4 | _VCO_REG_VCOB_LOW_POWER,
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_VCO_REG, magic_number);
@@ -610,7 +615,7 @@ ib200_max2163_init(libusb_device_handle *devh)
 	/* Initialize the R-Divider MSB Register */
 	magic_number = 0x5d;
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_MSB_REG, 
-			PLL_MOST_RDIVIDER(DEFAULT_RDIVIDER),
+			/* TODO:0x38 */ PLL_MOST_RDIVIDER(DEFAULT_RDIVIDER),
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
 		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_MSB_REG, magic_number);
@@ -661,12 +666,13 @@ ib200_max2163_init(libusb_device_handle *devh)
 	unsigned char magic_nums[] = {0x4c,0x88,0xc4,0x00,0x3b,0x77};
 	for (i=0x11; i<=0x16; ++i) {
 		unsigned char cmd[13] = { 0x0b, (addr>>8) & 0xff, addr & 0xff, 0x01, 0x01, i, 0, 0, i-0x11, 0, 0, 0, magic_nums[i-0x11] };
+		printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 		libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT, 
 			1, 0x0b, 0x00, cmd, sizeof(cmd), 1000);
 	/* Based on log analysis:
      For some unknown reason, the last non-documented register lacks a corresponding shadow write... */
 		if (i < 0x16)
-			ib200_shadow_write(devh, (i-0x11), 0x00);
+			ib200_shadow_write(devh, (i-0x11), magic_nums[i-0x11]);
 	}
 
 	return 0;
@@ -698,6 +704,7 @@ ib200_upload_firmware(libusb_device_handle *devh)
 	for (i=0; i<sizeof(firmware); i+=2) {
 		cmd[5] = firmware[i];
 		cmd[6] = firmware[i+1];
+		printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 		ret = libusb_control_transfer(devh, bmRequestType, bRequest, wValue, wIndex, cmd, sizeof(cmd), 1000);
 		if (ret < 0) {
 			debug_printf("libusb_control_transfer: failed with error %d", ret);
@@ -757,18 +764,25 @@ ib200_init(struct ib200_handle *handle)
 		return 1;
 	}
 
+
+
+//This does not seem to correctly map to the configuration sequence seen at logs/Log/lucasvr-01-hotplug.log :
+#if 0
 	/* 
 	 * Specify which bAlternateSetting to use:
 	 * 0: Configuration Descriptor
 	 * 1: EP 2 IN @ 0x82 - wMaxPacketSize=0x03ff  (1 x 1023 bytes)
 	 * 2: EP 2 IN @ 0x82 - wMaxPacketSize=0x1400  (3 x 1024 bytes)
 	 */
-	bAlternateSetting = 0;
+
+	bInterfaceNumber = 0;
+	bAlternateSetting = 1;
 	ret = libusb_set_interface_alt_setting(devh, bInterfaceNumber, bAlternateSetting);
 	if (ret < 0) {
 		debug_printf("libusb_set_interface_alt_setting: failed with error %d", ret);
 		return 1;
 	}
+#endif
 
 	/* Initialize the Configuration Descriptor */
 	ret = ib200_init_configuration_descriptor(devh);
@@ -785,12 +799,20 @@ ib200_init(struct ib200_handle *handle)
 	if (ret < 0)
 		return 1;
 
+
+/* TODO: What does URB #69 in logs/Log/lucasvr-01-hotplug.log do?
+   URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE
+   Should we so something else here ?
+*/
+
 	/* 
 	 * Specify which bAlternateSetting to use:
 	 * 0: Configuration Descriptor
 	 * 1: EP 2 IN @ 0x82 - wMaxPacketSize=0x03ff  (1 x 1023 bytes)
 	 * 2: EP 2 IN @ 0x82 - wMaxPacketSize=0x1400  (3 x 1024 bytes)
 	 */
+
+	bInterfaceNumber = 0;
 	bAlternateSetting = 1;
 	ret = libusb_set_interface_alt_setting(devh, bInterfaceNumber, bAlternateSetting);
 	if (ret < 0) {
@@ -815,6 +837,7 @@ usb_in(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
 	int ret;
 	uint8_t bmRequestType, bRequest;
 	unsigned char buf[13];
+	unsigned char *cmd;
 
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN;
@@ -824,15 +847,19 @@ usb_in(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
 		return ret;
 	}
 
+	cmd=buf;
+	printf("USBIN  <<<  %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
+
 	usleep(10000);
 
 	if (v0!=buf[0]||v1!=buf[1]||v2!=buf[2]||v3!=buf[3]||v4!=buf[4]||v5!=buf[5]||v6!=buf[6]||
 v7!=buf[7]||v8!=buf[8]||v9!=buf[9]||v10!=buf[10]||v11!=buf[11]||v12!=buf[12])
 		{
-			printf("USB response was different than what we expected to receive!\n");
-			printf("expected:   %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x\n",
-				v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12 );  
-			hexdump(buf,sizeof(buf));
+			printf("EXPECTED:   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X",
+				v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12 );
+			printf(" (USB response was different than what we expected to receive!)\n\n");
+
+//			hexdump(buf,sizeof(buf));
 		}
 	return 0;
 }
@@ -849,6 +876,7 @@ usb_out(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
 
 	bRequest = 1;
 	bmRequestType = LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT;
+	printf("USBOUT >>> %02X %02X %02X %02X   %02X %02X %02X %02X   %02X %02X %02X %02X   %02X\n", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], cmd[10], cmd[11], cmd[12]);
 	ret = libusb_control_transfer(devh, bmRequestType, bRequest, 0x0b, 0x00, cmd, sizeof(cmd), 1000);
 	if (ret < 0) {
 		debug_printf("libusb_control_transfer: failed with error %d", ret);
@@ -878,7 +906,7 @@ tune_to_record(struct ib200_handle *handle)
 {
 	int ret;
 	int tvrecord_reference_divider = 0x70;
-	int tvrecord_integer_divider = 0x70d;
+	int tvrecord_integer_divider = 0x6F8;
 
 	libusb_device_handle *devh = handle->devh;
 
@@ -891,10 +919,10 @@ tune_to_record(struct ib200_handle *handle)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 0b, 00, 87, 8f, 00)
 
-////Record Porto Alegre: 515
-//	USB_OUT( 0b, c0, c0, 01, 01, 03, c2, 00, 00, 00, 00, 00, 20)
+//URB #80:
+//	USB_OUT( 0b, c0, c0, 01, 01, 03, c1, 00, 00, 00, 00, 00, 20)
 	MAX2163_WRITE_I2C(MAX2163_I2C_RF_FILTER_REG,
-                          _RF_FILTER_UHF_RANGE_512_542MHZ | _RF_FILTER_AGC_MINUS_66DBM | _RF_FILTER_PWRDET_BUF_ON_GC1,
+                          /* 0xC1 */ _RF_FILTER_UHF_RANGE_488_512MHZ | _RF_FILTER_AGC_MINUS_66DBM | _RF_FILTER_PWRDET_BUF_ON_GC1,
 			  /* magic number */ 0x20)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 00, 00, 00, 00, 20)
@@ -921,18 +949,16 @@ tune_to_record(struct ib200_handle *handle)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 03, 00, 00, 00, d3)
 
-////Record Porto Alegre: 515
-////	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
-//	USB_OUT( 0b, c0, c0, 01, 01, 07, 70, 00, 04, 00, 00, 00, 0f)
+//URB #88:
+//	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
 	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_MSB_REG,
                           PLL_MOST_NDIVIDER(tvrecord_integer_divider),
 			  /* magic number */ 0x0f)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 04, 00, 00, 00, 0f)
 
-////Record Porto Alegre: 515
-////	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
-//	USB_OUT( 0b, c0, c0, 01, 01, 08, d0, 00, 05, 00, 00, 00, 4a)
+//URB #90:
+//	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
 	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_LSB_REG,
                           PLL_LEAST_NDIVIDER(tvrecord_integer_divider) | _NDIVIDER_LSB_REG_MIX_NORMAL
                           | _NDIVIDER_LSB_REG_RFVGA_NORMAL | _NDIVIDER_LSB_REG_STBY_NORMAL,
@@ -951,18 +977,19 @@ tune_to_record(struct ib200_handle *handle)
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 06, 88, 04, db, 87, 8f, 00)
 
-	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
-
-	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
-	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
-
-  //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	//	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
 
-  //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+        //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
+	ib200_set_LED(devh, true);
+
+	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
+	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
+
+        //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
@@ -1101,10 +1128,8 @@ iso_callback(struct libusb_transfer *transfer)
 		unsigned char *pbuf = transfer->buffer + buf_index;
 		buf_index += desc->length;
 		if (desc->actual_length != 0) {
-			if (i==0) {
-				printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
-				hexdump(pbuf, desc->actual_length);
-			}
+			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
+			hexdump(pbuf, desc->actual_length);
 		}
 	}
 
@@ -1141,10 +1166,12 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 		return ret;
 	}
 
-	//I don't know why these 2 URBs trigger responses from ISOC requests:
-	usb_out(handle->devh, 0x0b, 0x00, 0x00, 0x82, 0x01, 0x16, 0x00, 0x00, 0xa8, 0x6d, 0x0d, 0x89, 0x43);
-	usleep(16000); //do we need to delay 16ms here?
-	usb_out(handle->devh, 0x0b, 0x00, 0x20, 0x82, 0x01, 0x15, 0x80, 0x00, 0x1c, 0x0b, 0x00, 0x00, 0x74);
+//	These URBs where not seen at logs/Log/lucasvr-02-tune_to_record.log:
+
+// I don't know why these 2 URBs trigger responses from ISOC requests:
+//	usb_out(handle->devh, 0x0b, 0x00, 0x00, 0x82, 0x01, 0x16, 0x00, 0x00, 0xa8, 0x6d, 0x0d, 0x89, 0x43);
+//	usleep(16000); //do we need to delay 16ms here?
+//	usb_out(handle->devh, 0x0b, 0x00, 0x20, 0x82, 0x01, 0x15, 0x80, 0x00, 0x1c, 0x0b, 0x00, 0x00, 0x74);
 
 	return 0;
 }

@@ -64,8 +64,8 @@
 #define _VAS_REG_CPS_AUTOMATIC               ((0x01 << 4) & 0x10)
 #define _VAS_REG_DISABLE_VCO_AUTOSELECT      ((0x00 << 5) & 0x20)
 #define _VAS_REG_ENABLE_VCO_AUTOSELECT       ((0x01 << 5) & 0x20)
-#define _VAS_REG_START_AT_CURR_LOADED_REGS   ((0x00 << 6) & 0xc0)
-#define _VAS_REG_START_AT_CURR_USED_REGS     ((0x01 << 6) & 0xc0)
+#define _VAS_REG_START_AT_CURR_LOADED_REGS   ((0x02 << 6) & 0xc0)
+#define _VAS_REG_START_AT_CURR_USED_REGS     ((0x03 << 6) & 0xc0)
 
 #define MAX2163_I2C_VCO_REG                    0x02
 #define _VCO_REG_MASK                          0x7f
@@ -87,10 +87,10 @@
 #define _VCO_REG_SUB_BAND_13                 ((0x0d << 1) & 0x1e)
 #define _VCO_REG_SUB_BAND_14                 ((0x0e << 1) & 0x1e)
 #define _VCO_REG_SUB_BAND_15                 ((0x0f << 1) & 0x1e)
-#define _VCO_REG_VCO_0                       ((0x00 << 5) & 0x20)
-#define _VCO_REG_VCO_1                       ((0x01 << 5) & 0x20)
-#define _VCO_REG_VCO_2                       ((0x02 << 5) & 0x20)
-#define _VCO_REG_NOT_USED                    ((0x03 << 5) & 0x20)
+#define _VCO_REG_VCO_0                       ((0x00 << 5) & 0x60)
+#define _VCO_REG_VCO_1                       ((0x01 << 5) & 0x60)
+#define _VCO_REG_VCO_2                       ((0x02 << 5) & 0x60)
+#define _VCO_REG_NOT_USED                    ((0x03 << 5) & 0x60)
 #define _VCO_FACTORY_USE_ONLY                ((0x01 << 7) & 0x80)
 
 #define MAX2163_I2C_RF_FILTER_REG              0x03
