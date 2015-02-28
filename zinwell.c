@@ -273,7 +273,9 @@ ib200_endpoint_write(libusb_device_handle *devh, uint16_t addr, uint16_t wValue,
 
 // OUT -> 0b 00 20 82 01 15 80 83 18 01 00 00 74
 // IN  <- 0b 00 00 82 01 15 80 c3 18 01 00 00 74
-int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value){
+int
+read_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value)
+{
 	uint8_t request_type, request;
 	uint16_t value, index, addr;
 	int ret;
@@ -306,7 +308,9 @@ int read_misterious_registers(libusb_device_handle *devh, unsigned char reg, uns
 
 // OUT -> 0b 00 20 82 01 15 80 83 18 01 00 00 74
 // IN  <- 0b 00 00 82 01 15 80 c3 18 01 00 00 74
-int write_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char value){
+int
+write_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsigned char value)
+{
 	int ret;
 	uint16_t addr = 0x0000;
 
@@ -322,7 +326,9 @@ int write_misterious_registers(libusb_device_handle *devh, unsigned char reg, un
 	return 0;
 }
 
-void test_misterious_registers(libusb_device_handle *devh){
+void
+test_misterious_registers(libusb_device_handle *devh)
+{
 	int reg, i;
 	unsigned char retval;
 
@@ -354,7 +360,9 @@ void test_misterious_registers(libusb_device_handle *devh){
 //         data indexes:  0  1  2  3  4  5  6  7
 // OUT -> 0b ee e0 01 01 32 00 88 04 db 87 8f 00
 // IN  <- 0b ee e0 01 01 32 0a 88 04 db 87 8f 00
-int read_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value){
+int
+read_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char* return_value)
+{
 	uint8_t request_type, request;
 	uint16_t value, index, addr;
 	int ret;
@@ -387,7 +395,9 @@ int read_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, u
 
 // OUT -> 0b ee e0 01 01 32 00 88 04 db 87 8f 00
 // IN  <- 0b ee e0 01 01 32 0a 88 04 db 87 8f 00
-int write_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char value){
+int
+write_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsigned char value)
+{
 	int ret;
 	uint16_t addr = 0x0000;
 
@@ -403,7 +413,9 @@ int write_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, 
 	return 0;
 }
 
-void test_misterious_registers_2(libusb_device_handle *devh){
+void
+test_misterious_registers_2(libusb_device_handle *devh)
+{
 	int reg, i;
 	unsigned char retval;
 
