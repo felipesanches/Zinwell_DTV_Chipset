@@ -76,7 +76,31 @@ struct ib200_handle {
 	void *read_buffer;
 	size_t read_count;
 	int pending_requests;
+	FILE *out_fp;
 };
+
+const char *
+ib200_error(int libusb_error)
+{
+	switch (libusb_error) {
+		case LIBUSB_TRANSFER_COMPLETED:
+			return "LIBUSB_TRANSFER_COMPLETED";
+		case LIBUSB_TRANSFER_ERROR:
+			return "LIBUSB_TRANSFER_ERROR";
+		case LIBUSB_TRANSFER_TIMED_OUT:
+			return "LIBUSB_TRANSFER_TIMED_OUT";
+		case LIBUSB_TRANSFER_CANCELLED:
+			return "LIBUSB_TRANSFER_CANCELLED";
+		case LIBUSB_TRANSFER_STALL:
+			return "LIBUSB_TRANSFER_STALL";
+		case LIBUSB_TRANSFER_NO_DEVICE:
+			return "LIBUSB_TRANSFER_NO_DEVICE";
+		case LIBUSB_TRANSFER_OVERFLOW:
+			return "LIBUSB_TRANSFER_OVERFLOW";
+		default:
+			return "Unknown error";
+	}
+}
 
 struct ib200_handle *
 ib200_open_device(libusb_device **devlist, size_t n)
@@ -1149,6 +1173,8 @@ iso_callback(struct libusb_transfer *transfer)
 		if (desc->actual_length != 0) {
 			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
 			hexdump(pbuf, desc->actual_length);
+			if (handle->out_fp)
+				fwrite(pbuf, desc->actual_length, sizeof(char), handle->out_fp);
 		}
 	}
 
@@ -1181,7 +1207,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
-		debug_printf("Error submitting transfer");
+		debug_printf("Error submitting transfer: %s", ib200_error(errno));
 		return ret;
 	}
 
@@ -1334,8 +1360,8 @@ main(int argc, char **argv)
 		printf("ib200_has_signal: %d\n", has_signal);
 	}
 
-	if (user_options->run_test){
-		switch(user_options->run_test){
+	if (user_options->run_test) {
+		switch(user_options->run_test) {
 			case 1:
 				printf("Testing misterious registers:\n\n");
 				test_misterious_registers(handle->devh);
@@ -1347,7 +1373,7 @@ main(int argc, char **argv)
 			case 3:
 				printf("Replaying logs to tune to Record:\n\n");
 				if (!user_options->writeto)
-					printf("You should try it with -wfilename!\n");
+					printf("You should try it with --writeto=filename!\n");
 				ret = tune_to_record(handle);
 				if (ret < 0)
 					goto out_close;
@@ -1364,38 +1390,33 @@ main(int argc, char **argv)
 	}
 
 	if (user_options->writeto) {
-		int num_packets = 64;  /* Must be a multiple of 8, as bInterval==1 */
-		int packet_size = 940;
+		int num_packets = 64;       /* Must be a multiple of 8, as bInterval==1 */
+		int packet_size = 188 * 5;  /* Must be a multiple of 188 (transport stream packet size) */
 		char *buf = malloc(num_packets * packet_size);
-		FILE *fp;
 		
 		if (! buf) {
 			perror("malloc");
 			goto out_free;
 		}
 
-		fp = fopen(user_options->writeto, "w+");
-		if (! fp) {
+		handle->out_fp = fopen(user_options->writeto, "w+");
+		if (! handle->out_fp) {
 			perror(user_options->writeto);
 			goto out_close;
 		}
 
 		handle->pending_requests = 0;
 		while (true) {
-			if (handle->pending_requests<8){
+			if (handle->pending_requests<8) {
 				handle->pending_requests++;
 
 				ret = ib200_read(handle, buf, num_packets, packet_size);
 				printf("Sent a request for an isochronous transfer [pending=%d]\n", handle->pending_requests);
-
-			if (ret < 0)
-				break;
-
-			//if (ret)
-			//	fwrite(buf, ret, sizeof(char), fp);
+				if (ret < 0)
+					break;
 			}
 		}
-		fclose(fp);
+		fclose(handle->out_fp);
 		free(buf);
 	}
 
