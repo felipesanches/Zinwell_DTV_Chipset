@@ -70,11 +70,10 @@
  */
 
 struct ib200_handle {
+	FILE *fp;
 	libusb_device *dev;
 	libusb_device_handle *devh;
 	bool device_closed;
-	void *read_buffer;
-	size_t read_count;
 	int pending_requests;
 };
 
@@ -1137,12 +1136,11 @@ iso_callback(struct libusb_transfer *transfer)
 		if (desc->actual_length != 0) {
 			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
 			hexdump(pbuf, desc->actual_length);
+            fwrite(pbuf, desc->actual_length, sizeof(char*), handle->fp);
 		}
 	}
 
 	printf("read_count: %d\n", buf_index);
-
-	/*TODO: actually save the received packet buffer to the output file*/
 	libusb_free_transfer(transfer);
 }
 
@@ -1355,15 +1353,14 @@ main(int argc, char **argv)
 		int num_packets = 64;  /* Must be a multiple of 8, as bInterval==1 */
 		int packet_size = 940;
 		char *buf = malloc(num_packets * packet_size);
-		FILE *fp;
 		
 		if (! buf) {
 			perror("malloc");
 			goto out_free;
 		}
 
-		fp = fopen(user_options->writeto, "w+");
-		if (! fp) {
+		handle->fp = fopen(user_options->writeto, "w+");
+		if (! handle->fp) {
 			perror(user_options->writeto);
 			goto out_close;
 		}
@@ -1376,14 +1373,12 @@ main(int argc, char **argv)
 				ret = ib200_read(handle, buf, num_packets, packet_size);
 				printf("Sent a request for an isochronous transfer [pending=%d]\n", handle->pending_requests);
 
-			if (ret < 0)
-				break;
+			    if (ret < 0)
+				    break;
 
-			//if (ret)
-			//	fwrite(buf, ret, sizeof(char), fp);
 			}
 		}
-		fclose(fp);
+		fclose(handle->fp);
 		free(buf);
 	}
 
