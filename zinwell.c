@@ -41,7 +41,7 @@
 #define IB200_PRODUCT_ID       0x4210   /* ISDB-T DTV UB-10 */
 #define IB200_CONFIG_ENDPOINT  0x82
 #define DEFAULT_RDIVIDER 0x70     /* default PLL reference divider */
-#define DEFAULT_NDIVIDER 0x67A    /* default PLL integer divider */
+#define DEFAULT_NDIVIDER 0x6f8    /* default PLL integer divider */
 #define VCO_CRYSTAL_FREQ 32 /* The oscillator crystal used for driving
                                the PLL reference frequency operates at 32MHz */
 
@@ -69,8 +69,19 @@
  * After each of these individual commands, writes to \x0b\x00\x00\x82 are issued.
  */
 
+struct user_options {
+	int frequency;
+	bool blink;
+	bool initialize;
+	bool check_signal;
+	char *writeto;
+	int run_test;
+	bool quiet;
+};
+
 struct ib200_handle {
 	FILE *fp;
+	struct user_options *user_options;
 	libusb_device *dev;
 	libusb_device_handle *devh;
 	bool device_closed;
@@ -344,7 +355,8 @@ write_misterious_registers(libusb_device_handle *devh, unsigned char reg, unsign
 	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
 	if (ret < 0){
 		printf("write_misterious_registers: error writing to endpoint\n");
-		return ret;}
+		return ret;
+	}
 	return 0;
 }
 
@@ -431,7 +443,8 @@ write_misterious_registers_2(libusb_device_handle *devh, unsigned char reg, unsi
 	ret = ib200_endpoint_write(devh, addr, 0x0b, 0x00, data);
 	if (ret < 0){
 		printf("write_misterious_registers: error writing to endpoint\n");
-		return ret;}
+		return ret;
+	}
 	return 0;
 }
 
@@ -1160,6 +1173,7 @@ iso_callback(struct libusb_transfer *transfer)
 {
 	int i;
 	struct ib200_handle *handle = (struct ib200_handle *) transfer->user_data;
+	struct user_options *user_options = handle->user_options;
 	handle->pending_requests--;
 
 	debug_printf("iso_callback called. transfer_status=%d\n", transfer->status);
@@ -1168,8 +1182,10 @@ iso_callback(struct libusb_transfer *transfer)
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
 		if (desc->actual_length != 0 && desc->status == LIBUSB_TRANSFER_COMPLETED) {
 			unsigned char *pbuf = libusb_get_iso_packet_buffer_simple(transfer, i);
-			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
-			hexdump(pbuf, desc->actual_length);
+			if (! user_options->quiet) {
+				printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
+				hexdump(pbuf, desc->actual_length);
+			}
 			if (handle->fp)
 				fwrite(pbuf, desc->actual_length, sizeof(char), handle->fp);
 		}
@@ -1215,28 +1231,19 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	return 0;
 }
 
-
-struct user_options {
-	int frequency;
-	bool blink;
-	bool initialize;
-	bool check_signal;
-	char *writeto;
-	int run_test;
-};
-
 void
 show_usage(char *appname)
 {
 	printf("Usage: %s <options>\n\n"
 		   "Available options are:\n"
 		   "  -b, --blink               Blink LED!\n"
+		   "  -h, --help                This help\n"
 		   "  -i, --init                Initialize tuner\n"
 		   "  -f, --frequency <freq>    Tune to frequency <freq>\n"
+		   "  -q, --quiet               Do not output debugging messages\n"
 		   "  -s, --check-signal        Check signal\n"
-		   "  -w, --writeto=<file>      Write transport stream packets to <file>\n"
 		   "  -t, --test=<test_number>	Run one of the available development tests\n"
-		   "  -h, --help                This help\n"
+		   "  -w, --writeto=<file>      Write transport stream packets to <file>\n"
 		   , appname);
 
 }
@@ -1245,15 +1252,16 @@ struct user_options *
 parse_args(int argc, char **argv)
 {
 	struct user_options *opts, zeroed_opts;
-	const char *short_options = "bif:sw:t:h";
+	const char *short_options = "bif:qsw:t:h";
 	struct option long_options[] = {
 		{ "blink", 0, 0, 0 },
-		{ "init", 0, 0, 0 },
-		{ "frequency", 1, 0, 'f' },
 		{ "check-signal", 0, 0, 0 },
-		{ "writeto", 0, 0, 'w' },
-		{ "test", 1, 0, 't' },
+		{ "frequency", 1, 0, 'f' },
 		{ "help", 0, 0, 0 },
+		{ "init", 0, 0, 0 },
+		{ "quiet", 0, 0, 'q' },
+		{ "test", 1, 0, 't' },
+		{ "writeto", 0, 0, 'w' },
 	};
 
 	opts = calloc(1, sizeof(struct user_options));
@@ -1273,24 +1281,27 @@ parse_args(int argc, char **argv)
 			case 'b':
 				opts->blink = true;
 				break;
-			case 'i':
-				opts->initialize = true;
-				break;
 			case 'f':
 				opts->frequency = atoi(optarg);
-				break;
-			case 's':
-				opts->check_signal = true;
-				break;
-			case 'w':
-				opts->writeto = strdup(optarg);
-				break;
-			case 't':
-				opts->run_test = atoi(optarg);
 				break;
 			case 'h':
 				show_usage(argv[0]);
 				exit(0);
+			case 'i':
+				opts->initialize = true;
+				break;
+			case 'q':
+				opts->quiet = true;
+				break;
+			case 's':
+				opts->check_signal = true;
+				break;
+			case 't':
+				opts->run_test = atoi(optarg);
+				break;
+			case 'w':
+				opts->writeto = strdup(optarg);
+				break;
 			case '?':
 			default:
 				exit(1);
@@ -1336,6 +1347,7 @@ main(int argc, char **argv)
 	handle = ib200_open_device(dev_list, n);
 	if (! handle)
 		goto out_free;
+	handle->user_options = (void *) user_options;
 
 	if (user_options->blink) {
 		ret = ib200_blink_LED(handle);
@@ -1405,10 +1417,10 @@ main(int argc, char **argv)
 				handle->pending_requests++;
 
 				ret = ib200_read(handle, buf, num_packets, packet_size);
-				printf("Sent a request for an isochronous transfer [pending=%d]\n", handle->pending_requests);
+				if (! user_options->quiet)
+					printf("Sent a request for an isochronous transfer [pending=%d]\n", handle->pending_requests);
 			    if (ret < 0)
 				    break;
-
 			}
 		}
 		fclose(handle->fp);
