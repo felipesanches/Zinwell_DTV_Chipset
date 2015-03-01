@@ -1158,7 +1158,7 @@ ib200_has_signal(struct ib200_handle *handle)
 static void 
 iso_callback(struct libusb_transfer *transfer)
 {
-	int i, buf_index=0;
+	int i;
 	struct ib200_handle *handle = (struct ib200_handle *) transfer->user_data;
 	handle->pending_requests--;
 
@@ -1166,9 +1166,8 @@ iso_callback(struct libusb_transfer *transfer)
 
 	for (i=0; i<transfer->num_iso_packets; ++i) {
 		struct libusb_iso_packet_descriptor *desc =  &transfer->iso_packet_desc[i];
-		unsigned char *pbuf = transfer->buffer + buf_index;
-		buf_index += desc->length;
-		if (desc->actual_length != 0) {
+		if (desc->actual_length != 0 && desc->status == LIBUSB_TRANSFER_COMPLETED) {
+			unsigned char *pbuf = libusb_get_iso_packet_buffer_simple(transfer, i);
 			printf("isopacket %d received %d bytes:\n", i, desc->actual_length);
 			hexdump(pbuf, desc->actual_length);
 			if (handle->fp)
@@ -1176,7 +1175,6 @@ iso_callback(struct libusb_transfer *transfer)
 		}
 	}
 
-	printf("read_count: %d\n", buf_index);
 	libusb_free_transfer(transfer);
 }
 
@@ -1204,7 +1202,7 @@ ib200_read(struct ib200_handle *handle, void *buf, size_t num_packets, size_t pa
 	ret = libusb_submit_transfer(transfer);
 	if (ret) {
 		debug_printf("Error submitting transfer: %s", ib200_error(errno));
-		return ret;
+		return 1;
 	}
 
 //	These URBs where not seen at logs/Log/lucasvr-02-tune_to_record.log:
