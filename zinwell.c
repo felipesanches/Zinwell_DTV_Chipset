@@ -1120,9 +1120,9 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 	
 	/* Initialize the N-Divider Registers */
-	n_divider = (64 + frequency * DEFAULT_RDIVIDER) / VCO_CRYSTAL_FREQ;
+	n_divider = ((64 + frequency * DEFAULT_RDIVIDER) / VCO_CRYSTAL_FREQ) + 1;
 
-	printf("\nFreq: %d\nN-DIV: %d\nR-DIV: %d\n\n", frequency, n_divider, DEFAULT_RDIVIDER);
+	printf("\nFreq: %d\nN-DIV: %#x\nR-DIV: %#x\n\n", frequency, n_divider, DEFAULT_RDIVIDER);
 
 	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
  			 PLL_MOST_NDIVIDER(n_divider), 0xd5, /* reg offset: */ 0x00);
