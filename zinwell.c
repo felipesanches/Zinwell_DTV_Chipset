@@ -945,17 +945,23 @@ usb_out(libusb_device_handle *devh, unsigned char v0, unsigned char v1,
 	usb_in(devh, 0x##v0, 0x##v1, 0x##v2, 0x##v3, 0x##v4, 0x##v5, 0x##v6,\
                   0x##v7, 0x##v8, 0x##v9, 0x##v10, 0x##v11, 0x##v12);
 
-#define MAX2163_WRITE_I2C(reg, val, magic)\
-	ret = ib200_i2c_write(devh, (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR, reg, val, magic, /* reg offset: */ 0x03);\
-	if (ret < 0) {\
-		debug_printf("Failed to write to MAX2163 i2c register\n");\
-		return ret;\
+void
+max2163_write_i2c(libusb_device_handle *devh, char reg, char val, char magic){
+    int ret;
+    int address = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
+
+	ret = ib200_i2c_write(devh, address, reg, val, magic, /* reg offset: */ 3);
+	if (ret < 0) {
+		debug_printf("Failed to write to MAX2163 i2c register\n");
+		return;
 	}
+
+	usb_out(devh, 0x0b, 0xee, 0xc4, 0x01, 0x01, 0x02, 0x01, reg-3, 0x00, 0x00, 0x00, 0x00, magic);
+}
 
 int
 tune_to_record(struct ib200_handle *handle)
 {
-	int ret;
 	int tvrecord_reference_divider = 0x70; //112
 	int tvrecord_integer_divider = 0x6F8; //1784
 
@@ -970,50 +976,31 @@ tune_to_record(struct ib200_handle *handle)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 0b, 00, 87, 8f, 00)
 
-//URB #80:
-//	USB_OUT( 0b, c0, c0, 01, 01, 03, c1, 00, 00, 00, 00, 00, 20)
-	MAX2163_WRITE_I2C(RF_FILTER_REG,
+	max2163_write_i2c(devh, RF_FILTER_REG,
                       UHF_RANGE_488_512MHZ | AGC_MINUS_66DBM | PWRDET_BUF_ON_GC1,
-			  /* magic number */ 0x20)
+			  /* magic number */ 0x20);
 
-	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 00, 00, 00, 00, 20)
-
-//	USB_OUT( 0b, c0, c0, 01, 01, 04, 00, 00, 01, 00, 00, 00, 5b)
-	MAX2163_WRITE_I2C(MODE_REG,
+	max2163_write_i2c(devh, MODE_REG,
                       HIGH_SIDE_INJECTION | ENABLE_RF_FILTER | ENABLE_3RD_STAGE_RFVGA,
-			  /* magic number */ 0x5b)
+			  /* magic number */ 0x5b);
 
-	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 01, 00, 00, 00, 5b)
-
-//	USB_OUT( 0b, c0, c0, 01, 01, 05, 38, 00, 02, 00, 00, 00, 97)
-	MAX2163_WRITE_I2C(RDIVIDER_MSB_REG,
+	max2163_write_i2c(devh, RDIVIDER_MSB_REG,
                       PLL_MOST_RDIVIDER(tvrecord_reference_divider),
-			  /* magic number */ 0x97)
+			  /* magic number */ 0x97);
 
-	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 02, 00, 00, 00, 97)
-
-//	USB_OUT( 0b, c0, c0, 01, 01, 06, 00, 00, 03, 00, 00, 00, d3)
-	MAX2163_WRITE_I2C(RDIVIDER_LSB_REG,
+	max2163_write_i2c(devh, RDIVIDER_LSB_REG,
                       CHARGE_PUMP_1_5MA | ENABLE_RF_DETECTOR | RFDA_37DB |
                       PLL_LEAST_RDIVIDER(tvrecord_reference_divider),
-			  /* magic number */ 0xd3)
+			  /* magic number */ 0xd3);
 
-	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 03, 00, 00, 00, d3)
-
-//URB #88:
-//	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
-	MAX2163_WRITE_I2C(NDIVIDER_MSB_REG,
+	max2163_write_i2c(devh, NDIVIDER_MSB_REG,
                       PLL_MOST_NDIVIDER(tvrecord_integer_divider),
-			  /* magic number */ 0x0f)
+			  /* magic number */ 0x0f);
 
-	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 04, 00, 00, 00, 0f)
-
-//URB #90:
-//	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
-	MAX2163_WRITE_I2C(NDIVIDER_LSB_REG,
+	max2163_write_i2c(devh, NDIVIDER_LSB_REG,
                       PLL_LEAST_NDIVIDER(tvrecord_integer_divider) |
                       MIX_NORMAL | RFVGA_NORMAL | STBY_NORMAL,
-			  /* magic number */ 0x4a)
+			  /* magic number */ 0x4a);
 
 	USB_OUT( 0b, ee, c0, 01, 01, 18, 01, 8f, 03, 00, 00, 00, c0)
 	USB_OUT( 0b, ee, c0, 01, 01, 18, 00, 8f, 03, 00, 00, 00, c0)
@@ -1022,31 +1009,26 @@ tune_to_record(struct ib200_handle *handle)
 	USB_OUT( 0b, ee, e0, 01, 01, 32, cd, fd, 00, 00, 00, 00, 2b)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 01, fd, 00, 00, 00, 00, 2b)
 
-	//	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, 03, 00, 00, 00, c0)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 06, 88, 04, db, 87, 8f, 00)
 
-	//	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
 
-        //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 07, 88, 04, db, 87, 8f, 00)
 
-        //	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
 	USB_IN ( 0b, ee, e0, 01, 01, 32, 08, 88, 04, db, 87, 8f, 00)
 
-	//	USB_OUT( 0b, 00, 00, 82, 01, 00, 35, 21, d8, 80, ec, 88, 20)
 	ib200_set_LED(devh, true);
 
 	USB_OUT( 0b, ee, e0, 01, 01, 32, 00, 88, 04, db, 87, 8f, 00)
