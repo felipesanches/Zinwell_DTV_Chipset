@@ -29,180 +29,176 @@
 #define MAX2163_I2C_WRITE_ADDR                 0xc0 /* may also be 0xc2 */
 #define MAX2163_I2C_READ_ADDR                  0xc1 /* may also be 0xc3 */
 
-#define MAX2163_I2C_IF_FILTER_REG              0x00
-#define _IF_FILTER_REG_MASK                    0xff
-#define _IF_FILTER_43MHZ_BANDWIDTH            (0x00 & 0x03)
-#define _IF_FILTER_26MHZ_BANDWIDTH            (0x01 & 0x03)
-#define _IF_FILTER_17MHZ_BANDWIDTH            (0x02 & 0x03)
-#define _IF_FILTER_13MHZ_BANDWIDTH            (0x03 & 0x03)
-#define _IF_FILTER_BIAS_CURRENT_00           ((0x00 << 2) & 0x0c)
-#define _IF_FILTER_BIAS_CURRENT_01           ((0x01 << 2) & 0x0c)
-#define _IF_FILTER_BIAS_CURRENT_10           ((0x02 << 2) & 0x0c)
-#define _IF_FILTER_BIAS_CURRENT_11           ((0x03 << 2) & 0x0c)
-#define _IF_FILTER_FLTS_INTERNAL             ((0x00 << 4) & 0x10)
-#define _IF_FILTER_FLTS_MANUAL               ((0x01 << 4) & 0x10)
-#define _IF_FILTER_CENTER_FREQUENCY_0_75     ((0x00 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_0_84     ((0x01 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_0_92     ((0x02 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_1_00     ((0x03 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_1_08     ((0x04 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_1_16     ((0x05 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_1_25     ((0x06 << 5) & 0xe0)
-#define _IF_FILTER_CENTER_FREQUENCY_1_33     ((0x07 << 5) & 0xe0)
+#define RDIVIDER_LSB_MASK      0x01
+#define NDIVIDER_LSB_MASK      0xf0
+#define PLL_MOST_NDIVIDER(num)   ((num >> 4) & 0xff)
+#define PLL_LEAST_NDIVIDER(num)  ((num << 4) & 0xf0)
 
-#define MAX2163_I2C_VAS_REG                    0x01
-#define _VAS_REG_MASK                          0xff
-#define _VAS_REG_AUTOSELECT_14336_WAIT_TIME   (0x00 & 0x03)
-#define _VAS_REG_AUTOSELECT_24576_WAIT_TIME   (0x01 & 0x03)
-#define _VAS_REG_AUTOSELECT_34816_WAIT_TIME   (0x02 & 0x03)
-#define _VAS_REG_AUTOSELECT_45056_WAIT_TIME   (0x03 & 0x03)
-#define _VAS_REG_DISABLE_ADC_READ            ((0x00 << 2) & 0x04)
-#define _VAS_REG_ENABLE_ADC_READ             ((0x01 << 2) & 0x04)
-#define _VAS_REG_DISABLE_ADC_LATCH           ((0x00 << 3) & 0x08)
-#define _VAS_REG_ENABLE_ADC_LATCH            ((0x01 << 3) & 0x08)
-#define _VAS_REG_CPS_MANUAL                  ((0x00 << 4) & 0x10)
-#define _VAS_REG_CPS_AUTOMATIC               ((0x01 << 4) & 0x10)
-#define _VAS_REG_DISABLE_VCO_AUTOSELECT      ((0x00 << 5) & 0x20)
-#define _VAS_REG_ENABLE_VCO_AUTOSELECT       ((0x01 << 5) & 0x20)
-#define _VAS_REG_START_AT_CURR_LOADED_REGS   ((0x02 << 6) & 0xc0)
-#define _VAS_REG_START_AT_CURR_USED_REGS     ((0x03 << 6) & 0xc0)
+#define IF_FILTER_REG              0x00
+#define BANDWIDTH_43MHZ           (0 << 0)
+#define BANDWIDTH_26MHZ           (1 << 0)
+#define BANDWIDTH_17MHZ           (2 << 0)
+#define BANDWIDTH_13MHZ           (3 << 0)
+#define IF_FILTER_REG_BANDWDITH_MASK 0x03
+#define BIAS_CURRENT_00           (0 << 2)
+#define BIAS_CURRENT_01           (1 << 2)
+#define BIAS_CURRENT_10           (2 << 2)
+#define BIAS_CURRENT_11           (3 << 2)
+#define FLTS_INTERNAL             (0 << 4)
+#define FLTS_MANUAL               (1 << 4)
+#define CENTER_FREQUENCY_0_75     (0 << 5)
+#define CENTER_FREQUENCY_0_84     (1 << 5)
+#define CENTER_FREQUENCY_0_92     (2 << 5)
+#define CENTER_FREQUENCY_1_00     (3 << 5)
+#define CENTER_FREQUENCY_1_08     (4 << 5)
+#define CENTER_FREQUENCY_1_16     (5 << 5)
+#define CENTER_FREQUENCY_1_25     (6 << 5)
+#define CENTER_FREQUENCY_1_33     (7 << 5)
 
-#define MAX2163_I2C_VCO_REG                    0x02
-#define _VCO_REG_MASK                          0x7f
-#define _VCO_REG_VCOB_NORMAL_POWER            (0x00 & 0x01)
-#define _VCO_REG_VCOB_LOW_POWER               (0x01 & 0x01)
-#define _VCO_REG_SUB_BAND_0                  ((0x00 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_1                  ((0x01 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_2                  ((0x02 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_3                  ((0x03 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_4                  ((0x04 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_5                  ((0x05 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_6                  ((0x06 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_7                  ((0x07 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_8                  ((0x08 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_9                  ((0x09 << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_10                 ((0x0a << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_11                 ((0x0b << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_12                 ((0x0c << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_13                 ((0x0d << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_14                 ((0x0e << 1) & 0x1e)
-#define _VCO_REG_SUB_BAND_15                 ((0x0f << 1) & 0x1e)
-#define _VCO_REG_VCO_0                       ((0x00 << 5) & 0x60)
-#define _VCO_REG_VCO_1                       ((0x01 << 5) & 0x60)
-#define _VCO_REG_VCO_2                       ((0x02 << 5) & 0x60)
-#define _VCO_REG_NOT_USED                    ((0x03 << 5) & 0x60)
-#define _VCO_FACTORY_USE_ONLY                ((0x01 << 7) & 0x80)
+#define VAS_REG                       0x01
+#define AUTOSELECT_14336_WAIT_TIME   (0 << 0)
+#define AUTOSELECT_24576_WAIT_TIME   (1 << 0)
+#define AUTOSELECT_34816_WAIT_TIME   (2 << 0)
+#define AUTOSELECT_45056_WAIT_TIME   (3 << 0)
+#define DISABLE_ADC_READ             (0 << 2)
+#define ENABLE_ADC_READ              (1 << 2)
+#define DISABLE_ADC_LATCH            (0 << 3)
+#define ENABLE_ADC_LATCH             (1 << 3)
+#define CPS_MANUAL                   (0 << 4)
+#define CPS_AUTOMATIC                (1 << 4)
+#define DISABLE_VCO_AUTOSELECT       (0 << 5)
+#define ENABLE_VCO_AUTOSELECT        (1 << 5)
+#define START_AT_CURR_LOADED_REGS    (2 << 6)
+#define START_AT_CURR_USED_REGS      (3 << 6)
 
-#define MAX2163_I2C_RF_FILTER_REG              0x03
-#define _RF_FILTER_REG_MASK                    0xff
-#define _RF_FILTER_UHF_RANGE_470_488MHZ       (0x00 & 0x07)
-#define _RF_FILTER_UHF_RANGE_488_512MHZ       (0x01 & 0x07)
-#define _RF_FILTER_UHF_RANGE_512_542MHZ       (0x02 & 0x07)
-#define _RF_FILTER_UHF_RANGE_542_572MHZ       (0x03 & 0x07)
-#define _RF_FILTER_UHF_RANGE_572_608MHZ       (0x04 & 0x07)
-#define _RF_FILTER_UHF_RANGE_608_656MHZ       (0x05 & 0x07)
-#define _RF_FILTER_UHF_RANGE_656_710MHZ       (0x06 & 0x07)
-#define _RF_FILTER_UHF_RANGE_710_806MHZ       (0x07 & 0x07)
-#define _RF_FILTER_AGC_MINUS_66DBM           ((0x00 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_64DBM           ((0x01 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_62DBM           ((0x02 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_60DBM           ((0x03 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_58DBM           ((0x04 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_56DBM           ((0x05 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_54DBM           ((0x06 << 3) & 0x38)
-#define _RF_FILTER_AGC_MINUS_52DBM           ((0x07 << 3) & 0x38)
-#define _RF_FILTER_PWRDET_BUF_OFF            ((0x00 << 6) & 0xc0)
-#define _RF_FILTER_PWRDET_BUF_ON_RFAGC       ((0x01 << 6) & 0xc0)
-#define _RF_FILTER_UNUSED                    ((0x02 << 6) & 0xc0)
-#define _RF_FILTER_PWRDET_BUF_ON_GC1         ((0x03 << 6) & 0xc0)
+#define VCO_REG                      0x02
+#define VCOB_NORMAL_POWER           (0 << 0)
+#define VCOB_LOW_POWER              (1 << 0)
+#define SUB_BAND_0                  (0 << 1)
+#define SUB_BAND_1                  (1 << 1)
+#define SUB_BAND_2                  (2 << 1)
+#define SUB_BAND_3                  (3 << 1)
+#define SUB_BAND_4                  (4 << 1)
+#define SUB_BAND_5                  (5 << 1)
+#define SUB_BAND_6                  (6 << 1)
+#define SUB_BAND_7                  (7 << 1)
+#define SUB_BAND_8                  (8 << 1)
+#define SUB_BAND_9                  (9 << 1)
+#define SUB_BAND_10                 (10 << 1)
+#define SUB_BAND_11                 (11 << 1)
+#define SUB_BAND_12                 (12 << 1)
+#define SUB_BAND_13                 (13 << 1)
+#define SUB_BAND_14                 (14 << 1)
+#define SUB_BAND_15                 (15 << 1)
+#define VCO_0                       (0 << 5)
+#define VCO_1                       (1 << 5)
+#define VCO_2                       (2 << 5)
+#define VCO_REG_NOT_USED            (3 << 5)
+#define VCO_FACTORY_USE_ONLY        (1 << 7)
 
-#define MAX2163_I2C_MODE_REG                   0x04
-#define _MODE_REG_MASK                         0xe0
-#define _MODE_REG_FACTORY_USE                 (0x1f)
-#define _MODE_REG_LOW_SIDE_INJECTION         ((0x01 << 5) & 0x20)
-#define _MODE_REG_HIGH_SIDE_INJECTION        ((0x00 << 5) & 0x20)
-#define _MODE_REG_ENABLE_RF_FILTER           ((0x00 << 6) & 0x40)
-#define _MODE_REG_DISABLE_RF_FILTER          ((0x01 << 6) & 0x40)
-#define _MODE_REG_ENABLE_3RD_STAGE_RFVGA     ((0x00 << 7) & 0x80)
-#define _MODE_REG_DISABLE_3RD_STAGE_RFVG     ((0x01 << 7) & 0x80)
+#define RF_FILTER_REG               0x03
+#define FREQ_RANGE_MASK             0xf0
+#define UHF_RANGE_470_488MHZ       (0 << 0)
+#define UHF_RANGE_488_512MHZ       (1 << 0)
+#define UHF_RANGE_512_542MHZ       (2 << 0)
+#define UHF_RANGE_542_572MHZ       (3 << 0)
+#define UHF_RANGE_572_608MHZ       (4 << 0)
+#define UHF_RANGE_608_656MHZ       (5 << 0)
+#define UHF_RANGE_656_710MHZ       (6 << 0)
+#define UHF_RANGE_710_806MHZ       (7 << 0)
+#define AGC_MINUS_66DBM            (0 << 3)
+#define AGC_MINUS_64DBM            (1 << 3)
+#define AGC_MINUS_62DBM            (2 << 3)
+#define AGC_MINUS_60DBM            (3 << 3)
+#define AGC_MINUS_58DBM            (4 << 3)
+#define AGC_MINUS_56DBM            (5 << 3)
+#define AGC_MINUS_54DBM            (6 << 3)
+#define AGC_MINUS_52DBM            (7 << 3)
+#define PWRDET_BUF_OFF             (0 << 6)
+#define PWRDET_BUF_ON_RFAGC        (1 << 6)
+#define UNUSED                     (2 << 6)
+#define PWRDET_BUF_ON_GC1          (3 << 6)
 
-#define MAX2163_I2C_RDIVIDER_MSB_REG           0x05
-#define _RDIVIDER_MSB_REG_MASK                 0xff
+#define MODE_REG                   0x04
+#define MODE_REG_FACTORY_USE       0x1f
+#define HIGH_SIDE_INJECTION        (0 << 5)
+#define LOW_SIDE_INJECTION         (1 << 5)
+#define ENABLE_RF_FILTER           (0 << 6)
+#define DISABLE_RF_FILTER          (1 << 6)
+#define ENABLE_3RD_STAGE_RFVGA     (0 << 7)
+#define DISABLE_3RD_STAGE_RFVG     (1 << 7)
+
+#define RDIVIDER_MSB_REG           0x05
+#define RDIVIDER_MSB_REG_MASK      0xff
+
 /* 
  * All bits are used to set the PLL reference divider (R) number.
  * default R divide value is 126 decimal. R can range from 16 to 511 decimal.
  */
 
-#define MAX2163_I2C_RDIVIDER_LSB_REG           0x06
-#define _RDIVIDER_LSB_REG_MASK                 0xdd
-#define _RDIVIDER_LSB_REG_RO_MASK             (0x01)
-#define _RDIVIDER_LSB_REG_FACTORY_USE_1      ((0x01 << 1) & 0x02)
-#define _RDIVIDER_LSB_REG_RFDA_37DB          ((0x00 << 2) & 0x0c)
-#define _RDIVIDER_LSB_REG_RFDA_34DB          ((0x01 << 2) & 0x0c)
-#define _RDIVIDER_LSB_REG_RFDA_31DB          ((0x02 << 2) & 0x0c)
-#define _RDIVIDER_LSB_REG_RFDA_28DB          ((0x03 << 2) & 0x0c)
-#define _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR ((0x00 << 4) & 0x10)
-#define _RDIVIDER_LSB_REG_DISABLE_RF_DETECTOR ((0x01<< 4) & 0x10)
-#define _RDIVIDER_LSB_REG_FACTORY_USE_2      ((0x01 << 5) & 0x20)
-#define _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA  ((0x00 << 6) & 0xc0)
-#define _RDIVIDER_LSB_REG_CHARGE_PUMP_2MA    ((0x01 << 6) & 0xc0)
-#define _RDIVIDER_LSB_REG_CHARGE_PUMP_2_5MA  ((0x02 << 6) & 0xc0)
-#define _RDIVIDER_LSB_REG_CHARGE_PUMP_3MA    ((0x03 << 6) & 0xc0)
+#define RDIVIDER_LSB_REG                   0x06
+#define RDIVIDER_LSB_REG_FACTORY_USE_1    (1 << 1)
+#define RFDA_37DB                         (0 << 2)
+#define RFDA_34DB                         (1 << 2)
+#define RFDA_31DB                         (2 << 2)
+#define RFDA_28DB                         (3 << 2)
+#define ENABLE_RF_DETECTOR                (0 << 4)
+#define DISABLE_RF_DETECTOR               (1 << 4)
+#define RDIVIDER_LSB_REG_FACTORY_USE_2    (1 << 5)
+#define CHARGE_PUMP_1_5MA                 (0 << 6)
+#define CHARGE_PUMP_2MA                   (1 << 6)
+#define CHARGE_PUMP_2_5MA                 (2 << 6)
+#define CHARGE_PUMP_3MA                   (3 << 6)
 
-#define PLL_MOST_RDIVIDER(num)   ((num >> 1) & 0xff)
-#define PLL_LEAST_RDIVIDER(num)   (num & _RDIVIDER_LSB_REG_RO_MASK)
+#define PLL_MOST_RDIVIDER(num)    ((num >> 1) & 0xff)
+#define PLL_LEAST_RDIVIDER(num)   (num & RDIVIDER_LSB_MASK)
 
-#define MAX2163_I2C_NDIVIDER_MSB_REG           0x07
-#define _NDIVIDER_MSB_REG_MASK                 0xff
+#define NDIVIDER_MSB_REG           0x07
 /*
  * All bits are used to set the most significant bits of the PLL integer 
  * divide number (N). Default integer divide value is N = 1952 decimal. N 
  * can range from 1314 to 2687.
  */
 
-#define MAX2163_I2C_NDIVIDER_LSB_REG           0x08
-#define _NDIVIDER_LSB_REG_MASK                 0xf7
-#define _NDIVIDER_LSB_REG_STBY_NORMAL         (0x00 & 0x01)
-#define _NDIVIDER_LSB_REG_STBY_DISABLED       (0x01 & 0x01)
-#define _NDIVIDER_LSB_REG_RFVGA_NORMAL       ((0x00 << 1) & 0x02)
-#define _NDIVIDER_LSB_REG_RFVGA_HIGH         ((0x01 << 1) & 0x02)
-#define _NDIVIDER_LSB_REG_MIX_NORMAL         ((0x00 << 2) & 0x04)
-#define _NDIVIDER_LSB_REG_MIX_HIGH           ((0x01 << 2) & 0x04)
-#define _NDIVIDER_LSB_REG_FACTORY_USE        ((0x01 << 3) & 0x08)
-
-
-#define PLL_MOST_NDIVIDER(num)   ((num >> 4) & 0xff)
-#define PLL_LEAST_NDIVIDER(num)  ((num << 4) & 0xf0)
+#define NDIVIDER_LSB_REG               0x08
+#define STBY_NORMAL                   (0 << 0)
+#define STBY_DISABLED                 (1 << 0)
+#define RFVGA_NORMAL                  (0 << 1)
+#define RFVGA_HIGH                    (1 << 1)
+#define MIX_NORMAL                    (0 << 2)
+#define MIX_HIGH                      (1 << 2)
+#define NDIVIDER_LSB_REG_FACTORY_USE  (1 << 3)
 
 /* Read-only register */
-#define MAX2163_I2C_STATUS_REG                 0x09
-#define _STATUS_REG_MASK                       0x3f
-#define _STATUS_REG_PWR_CYCLE                  0x01
-#define _STATUS_REG_CHARGE_PUMP_SETTING        0x06
-#define _STATUS_REG_VTUNE_ADC_CONVERSION       0x38 /* PLL lock info */
-#define _STATUS_REG_UNUSED                     0xc0
+#define STATUS_REG                 0x09
+#define STATUS_REG_MASK            0x3f
+#define PWR_CYCLE                  0x01
+#define CHARGE_PUMP_SETTING        0x06
+#define VTUNE_ADC_CONVERSION       0x38 /* PLL lock info */
+#define STATUS_REG_UNUSED          0xc0
 
 /* Read-only register */
-#define MAX2163_I2C_VAS_STATUS_REG             0x0a
-#define _VAS_STATUS_REG_MASK                   0xff
-#define _VAS_STATUS_REG_VASE                   0x01
-#define _VAS_STATUS_REG_VASA                   0x02
-#define _VAS_STATUS_REG_VCO_SUBBAND            0x3c
-#define _VAS_STATUS_REG_VCO_AUTOSELECT         0xc0
+#define VAS_STATUS_REG         0x0a
+#define VAS_STATUS_REG_MASK    0xff
+#define VASE                   0x01
+#define VASA                   0x02
+#define VCO_SUBBAND            0x3c
+#define VCO_AUTOSELECT         0xc0
 
-#define MAX2163_I2C_RESERVED1_REG              0x0b
-#define _RESERVED1_REG_MASK                    0x00
-#define MAX2163_I2C_RESERVED2_REG              0x0c
-#define _RESERVED2_REG_MASK                    0x00
-#define MAX2163_I2C_RESERVED3_REG              0x0d
-#define _RESERVED3_REG_MASK                    0x00
-#define MAX2163_I2C_RESERVED4_REG              0x0e
-#define _MAX2163_I2C_RESERVED4_REG_MASK        0x00
-#define MAX2163_I2C_RESERVED5_REG              0x0f
-#define _RESERVED5_REG_MASK                    0x00
-#define MAX2163_I2C_RESERVED6_REG              0x10
-#define _RESERVED6_REG_MASK                    0x00
-#define MAX2163_I2C_RESERVED7_REG              0x11
-#define _RESERVED7_REG_MASK                    0x00
+#define RESERVED_0B_REG              0x0b
+#define RESERVED_0C_REG              0x0c
+#define RESERVED_0D_REG              0x0d
+#define RESERVED_0E_REG              0x0e
+#define RESERVED_0F_REG              0x0f
+#define RESERVED_10_REG              0x10
+#define RESERVED_11_REG              0x11
+
+#define RESERVED_0B_REG_MASK         0x00
+#define RESERVED_0C_REG_MASK         0x00
+#define RESERVED_0D_REG_MASK         0x00
+#define RESERVED_0E_REG_MASK         0x00
+#define RESERVED_0F_REG_MASK         0x00
+#define RESERVED_10_REG_MASK         0x00
+#define RESERVED_11_REG_MASK         0x00
 
 #endif /* __max2163_h */

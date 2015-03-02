@@ -597,15 +597,15 @@ ib200_max2163_init(libusb_device_handle *devh)
 	uint16_t addr = (MAX2163_I2C_WRITE_ADDR << 8) | MAX2163_I2C_WRITE_ADDR;
 
 	/* Initialize the IF Filter Register */
-//OBS: Datasheet suggests using _IF_FILTER_BIAS_CURRENT_01 upon power-up
-//     but the observed log uses _IF_FILTER_BIAS_CURRENT_11
+//OBS: Datasheet suggests using BIAS_CURRENT_01 upon power-up
+//     but the observed log uses BIAS_CURRENT_11
 	magic_number = 0x33;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_IF_FILTER_REG, 
-			_IF_FILTER_13MHZ_BANDWIDTH | _IF_FILTER_BIAS_CURRENT_11 | 
-			_IF_FILTER_FLTS_INTERNAL | _IF_FILTER_CENTER_FREQUENCY_1_00,
+	ret = ib200_i2c_write(devh, addr, IF_FILTER_REG, 
+			BANDWIDTH_13MHZ | BIAS_CURRENT_11 | 
+			FLTS_INTERNAL | CENTER_FREQUENCY_1_00,
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_IF_FILTER_REG, magic_number);
+		ret = ib200_shadow_write(devh, IF_FILTER_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the IF Filter Register");
 		return ret;
@@ -614,11 +614,12 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the VAS Register */
 	magic_number = 0x6e;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VAS_REG, 
-			/* 0xb7 */ _VAS_REG_START_AT_CURR_LOADED_REGS | _VAS_REG_ENABLE_VCO_AUTOSELECT | _VAS_REG_CPS_AUTOMATIC | _VAS_REG_DISABLE_ADC_LATCH | _VAS_REG_ENABLE_ADC_READ |_VAS_REG_AUTOSELECT_45056_WAIT_TIME,
-			magic_number, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, VAS_REG, 
+                          START_AT_CURR_LOADED_REGS | ENABLE_VCO_AUTOSELECT |
+                          CPS_AUTOMATIC | DISABLE_ADC_LATCH | ENABLE_ADC_READ | AUTOSELECT_45056_WAIT_TIME,
+                          magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_VAS_REG, magic_number);
+		ret = ib200_shadow_write(devh, VAS_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the VAS Register");
 		return ret;
@@ -626,11 +627,11 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the VCO Register */
 	magic_number = 0xaa;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_VCO_REG, 
-			/* 0x29 */ _VCO_REG_VCO_1 | _VCO_REG_SUB_BAND_4 | _VCO_REG_VCOB_LOW_POWER,
-			magic_number, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, VCO_REG, 
+			              VCO_1 | SUB_BAND_4 | VCOB_LOW_POWER,
+                          magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_VCO_REG, magic_number);
+		ret = ib200_shadow_write(devh, VCO_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the VCO Register");
 		return ret;
@@ -638,11 +639,11 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the PDET/RF-FILT Register */
 	magic_number = 0xe6;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RF_FILTER_REG, 
-			/* 0xc7 */ _RF_FILTER_UHF_RANGE_710_806MHZ | _RF_FILTER_PWRDET_BUF_ON_GC1,
-			magic_number, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, RF_FILTER_REG, 
+			              UHF_RANGE_710_806MHZ | PWRDET_BUF_ON_GC1,
+                          magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG, magic_number);
+		ret = ib200_shadow_write(devh, RF_FILTER_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the PDET/RF-FILT Register");
 		return ret;
@@ -650,12 +651,11 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the MODE Register */
 	magic_number = 0x22;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_MODE_REG, 
-			/* 0x00 */ _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | 
-			_MODE_REG_ENABLE_3RD_STAGE_RFVGA,
-			magic_number, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, MODE_REG, 
+                          HIGH_SIDE_INJECTION | ENABLE_RF_FILTER | ENABLE_3RD_STAGE_RFVGA,
+                          magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_MODE_REG, magic_number);
+		ret = ib200_shadow_write(devh, MODE_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the MODE Register");
 		return ret;
@@ -663,11 +663,11 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the R-Divider MSB Register */
 	magic_number = 0x5d;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_MSB_REG, 
+	ret = ib200_i2c_write(devh, addr, RDIVIDER_MSB_REG, 
 			/* TODO:0x38 */ PLL_MOST_RDIVIDER(DEFAULT_RDIVIDER),
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_MSB_REG, magic_number);
+		ret = ib200_shadow_write(devh, RDIVIDER_MSB_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the R-Divider MSB Register");
 		return ret;
@@ -675,12 +675,12 @@ ib200_max2163_init(libusb_device_handle *devh)
 	
 	/* Initialize the R-Divider LSB/CP Register */
 	magic_number = 0x99;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RDIVIDER_LSB_REG, 
-			PLL_LEAST_RDIVIDER(DEFAULT_RDIVIDER) | _RDIVIDER_LSB_REG_RFDA_37DB | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR | 
-			_RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA,
+	ret = ib200_i2c_write(devh, addr, RDIVIDER_LSB_REG, 
+                          PLL_LEAST_RDIVIDER(DEFAULT_RDIVIDER) |
+                          RFDA_37DB | ENABLE_RF_DETECTOR | CHARGE_PUMP_1_5MA,
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_RDIVIDER_LSB_REG, magic_number);
+		ret = ib200_shadow_write(devh, RDIVIDER_LSB_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the R-Divider LSB/CP Register");
 		return ret;
@@ -688,11 +688,11 @@ ib200_max2163_init(libusb_device_handle *devh)
 
 	/* Initialize the N-Divider MSB Register */
 	magic_number = 0xd5;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
-			/* 0x67 */ PLL_MOST_NDIVIDER(DEFAULT_NDIVIDER),
+	ret = ib200_i2c_write(devh, addr, NDIVIDER_MSB_REG, 
+			PLL_MOST_NDIVIDER(DEFAULT_NDIVIDER),
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_MSB_REG, magic_number);
+		ret = ib200_shadow_write(devh, NDIVIDER_MSB_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider MSB Register");
 		return ret;
@@ -700,12 +700,12 @@ ib200_max2163_init(libusb_device_handle *devh)
 	
 	/* Initialize the N-Divider LSB/LIN Register */
 	magic_number = 0x11;
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
-			/* 0xa0 */ _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-			_NDIVIDER_LSB_REG_MIX_NORMAL | PLL_LEAST_NDIVIDER(DEFAULT_NDIVIDER),
+	ret = ib200_i2c_write(devh, addr, NDIVIDER_LSB_REG, 
+			STBY_NORMAL | RFVGA_NORMAL |
+			MIX_NORMAL | PLL_LEAST_NDIVIDER(DEFAULT_NDIVIDER),
 			magic_number, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG, magic_number);
+		ret = ib200_shadow_write(devh, NDIVIDER_LSB_REG, magic_number);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
 		return ret;
@@ -972,47 +972,47 @@ tune_to_record(struct ib200_handle *handle)
 
 //URB #80:
 //	USB_OUT( 0b, c0, c0, 01, 01, 03, c1, 00, 00, 00, 00, 00, 20)
-	MAX2163_WRITE_I2C(MAX2163_I2C_RF_FILTER_REG,
-                          /* 0xC1 */ _RF_FILTER_UHF_RANGE_488_512MHZ | _RF_FILTER_AGC_MINUS_66DBM | _RF_FILTER_PWRDET_BUF_ON_GC1,
+	MAX2163_WRITE_I2C(RF_FILTER_REG,
+                      UHF_RANGE_488_512MHZ | AGC_MINUS_66DBM | PWRDET_BUF_ON_GC1,
 			  /* magic number */ 0x20)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 00, 00, 00, 00, 20)
 
 //	USB_OUT( 0b, c0, c0, 01, 01, 04, 00, 00, 01, 00, 00, 00, 5b)
-	MAX2163_WRITE_I2C(MAX2163_I2C_MODE_REG,
-                          _MODE_REG_HIGH_SIDE_INJECTION | _MODE_REG_ENABLE_RF_FILTER | _MODE_REG_ENABLE_3RD_STAGE_RFVGA,
+	MAX2163_WRITE_I2C(MODE_REG,
+                      HIGH_SIDE_INJECTION | ENABLE_RF_FILTER | ENABLE_3RD_STAGE_RFVGA,
 			  /* magic number */ 0x5b)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 01, 00, 00, 00, 5b)
 
 //	USB_OUT( 0b, c0, c0, 01, 01, 05, 38, 00, 02, 00, 00, 00, 97)
-	MAX2163_WRITE_I2C(MAX2163_I2C_RDIVIDER_MSB_REG,
-                          PLL_MOST_RDIVIDER(tvrecord_reference_divider),
+	MAX2163_WRITE_I2C(RDIVIDER_MSB_REG,
+                      PLL_MOST_RDIVIDER(tvrecord_reference_divider),
 			  /* magic number */ 0x97)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 02, 00, 00, 00, 97)
 
 //	USB_OUT( 0b, c0, c0, 01, 01, 06, 00, 00, 03, 00, 00, 00, d3)
-	MAX2163_WRITE_I2C(MAX2163_I2C_RDIVIDER_LSB_REG,
-                          _RDIVIDER_LSB_REG_CHARGE_PUMP_1_5MA | _RDIVIDER_LSB_REG_ENABLE_RF_DETECTOR
-                          | _RDIVIDER_LSB_REG_RFDA_37DB | PLL_LEAST_RDIVIDER(tvrecord_reference_divider),
+	MAX2163_WRITE_I2C(RDIVIDER_LSB_REG,
+                      CHARGE_PUMP_1_5MA | ENABLE_RF_DETECTOR | RFDA_37DB |
+                      PLL_LEAST_RDIVIDER(tvrecord_reference_divider),
 			  /* magic number */ 0xd3)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 03, 00, 00, 00, d3)
 
 //URB #88:
 //	USB_OUT( 0b, c0, c0, 01, 01, 07, 6f, 00, 04, 00, 00, 00, 0f)
-	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_MSB_REG,
-                          PLL_MOST_NDIVIDER(tvrecord_integer_divider),
+	MAX2163_WRITE_I2C(NDIVIDER_MSB_REG,
+                      PLL_MOST_NDIVIDER(tvrecord_integer_divider),
 			  /* magic number */ 0x0f)
 
 	USB_OUT( 0b, ee, c4, 01, 01, 02, 01, 00, 04, 00, 00, 00, 0f)
 
 //URB #90:
 //	USB_OUT( 0b, c0, c0, 01, 01, 08, 80, 00, 05, 00, 00, 00, 4a)
-	MAX2163_WRITE_I2C(MAX2163_I2C_NDIVIDER_LSB_REG,
-                          PLL_LEAST_NDIVIDER(tvrecord_integer_divider) | _NDIVIDER_LSB_REG_MIX_NORMAL
-                          | _NDIVIDER_LSB_REG_RFVGA_NORMAL | _NDIVIDER_LSB_REG_STBY_NORMAL,
+	MAX2163_WRITE_I2C(NDIVIDER_LSB_REG,
+                      PLL_LEAST_NDIVIDER(tvrecord_integer_divider) |
+                      MIX_NORMAL | RFVGA_NORMAL | STBY_NORMAL,
 			  /* magic number */ 0x4a)
 
 	USB_OUT( 0b, ee, c0, 01, 01, 18, 01, 8f, 03, 00, 00, 00, c0)
@@ -1093,27 +1093,28 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 	}
 
 	if (frequency < 488)
-		freq_range = _RF_FILTER_UHF_RANGE_470_488MHZ;
+		freq_range = UHF_RANGE_470_488MHZ;
 	else if (frequency < 512)
-		freq_range = _RF_FILTER_UHF_RANGE_488_512MHZ;
+		freq_range = UHF_RANGE_488_512MHZ;
 	else if (frequency < 542)
-		freq_range = _RF_FILTER_UHF_RANGE_512_542MHZ;
+		freq_range = UHF_RANGE_512_542MHZ;
 	else if (frequency < 572)
-		freq_range = _RF_FILTER_UHF_RANGE_542_572MHZ;
+		freq_range = UHF_RANGE_542_572MHZ;
 	else if (frequency < 608)
-		freq_range = _RF_FILTER_UHF_RANGE_572_608MHZ;
+		freq_range = UHF_RANGE_572_608MHZ;
 	else if (frequency < 656)
-		freq_range = _RF_FILTER_UHF_RANGE_608_656MHZ;
+		freq_range = UHF_RANGE_608_656MHZ;
 	else if (frequency < 710)
-		freq_range = _RF_FILTER_UHF_RANGE_656_710MHZ;
+		freq_range = UHF_RANGE_656_710MHZ;
 	else
-		freq_range = _RF_FILTER_UHF_RANGE_710_806MHZ;
+		freq_range = UHF_RANGE_710_806MHZ;
 
 	/* Initialize the RF Filter Register at 0x03 */
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_RF_FILTER_REG, 
-			 freq_range | _RF_FILTER_PWRDET_BUF_ON_GC1 | _RF_FILTER_UNUSED, 0x6e, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, RF_FILTER_REG, 
+			 freq_range | UHF_RANGE_488_512MHZ | AGC_MINUS_66DBM | PWRDET_BUF_ON_GC1,
+             0x6e, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG, 0x6e);
+		ret = ib200_shadow_write(devh, RF_FILTER_REG, 0x6e);
 	if (ret < 0) {
 		debug_printf("Failed to configure the RF Filter Register");
 		return ret;
@@ -1124,21 +1125,22 @@ ib200_set_frequency(struct ib200_handle *handle, int frequency)
 
 	printf("\nFreq: %d\nN-DIV: %#x\nR-DIV: %#x\n\n", frequency, n_divider, DEFAULT_RDIVIDER);
 
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_MSB_REG, 
+	ret = ib200_i2c_write(devh, addr, NDIVIDER_MSB_REG, 
  			 PLL_MOST_NDIVIDER(n_divider), 0xd5, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_RF_FILTER_REG, 0xd5);
+		ret = ib200_shadow_write(devh, RF_FILTER_REG, 0xd5);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider MSB Register");
 		return ret;
 	}
 	
 	/* Initialize the N-Divider LSB/LIN Register */
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_NDIVIDER_LSB_REG, 
-			 _NDIVIDER_LSB_REG_STBY_NORMAL | _NDIVIDER_LSB_REG_RFVGA_NORMAL |
-			 _NDIVIDER_LSB_REG_MIX_NORMAL | PLL_LEAST_NDIVIDER(n_divider), 0x11, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, NDIVIDER_LSB_REG, 
+                          STBY_NORMAL | RFVGA_NORMAL | MIX_NORMAL |
+                          PLL_LEAST_NDIVIDER(n_divider),
+                          0x11, /* reg offset: */ 0x00);
 	if (ret == 0)
-		ret = ib200_shadow_write(devh, MAX2163_I2C_NDIVIDER_LSB_REG, 0x11);
+		ret = ib200_shadow_write(devh, NDIVIDER_LSB_REG, 0x11);
 	if (ret < 0) {
 		debug_printf("Failed to configure the N-Divider LSB/LIN Register");
 		return ret;
@@ -1155,7 +1157,7 @@ ib200_has_signal(struct ib200_handle *handle)
 	unsigned char buf[32];
 	int ret;
 
-	ret = ib200_i2c_write(devh, addr, MAX2163_I2C_STATUS_REG, 0, 0, /* reg offset: */ 0x00);
+	ret = ib200_i2c_write(devh, addr, STATUS_REG, 0, 0, /* reg offset: */ 0x00);
 	debug_printf("ib200_i2c_write=%d", ret);
 
 /* QUESTION: i2c read function really does not specify from which I2C address
